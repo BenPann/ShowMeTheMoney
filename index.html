@@ -1,0 +1,1201 @@
+<!DOCTYPE html>
+<html lang="zh-Hant" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>快速記帳</title>
+
+<!-- iOS 加入主畫面設定,先預留,之後補圖示 -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="記帳">
+
+<!-- Pico.css 極輕量框架,只負責基礎排版與表單元件樣式 -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+
+<style>
+/* ===== 色彩變數:依附圖深色系設定 ===== */
+:root[data-theme="dark"] {
+  --bg-app: #1c1c1e;
+  --bg-card: #2c2c2e;
+  --bg-card-hover: #3a3a3c;
+  --border-subtle: #3a3a3c;
+  --text-main: #f2f2f2;
+  --text-muted: #8e8e93;
+  --accent: #4a90e2;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  background: var(--bg-app);
+  color: var(--text-main);
+  margin: 0;
+  padding: 0;
+  font-family: -apple-system, "PingFang TC", "Noto Sans TC", sans-serif;
+  /* 避免 iOS 加入主畫面後,狀態列/手勢列遮住內容 */
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ===== 主內容區:每個分頁是一個 <section data-page="..."> ===== */
+main.app-content {
+  flex: 1;
+  padding: 1rem;
+  padding-bottom: 90px; /* 留空間給底部分頁列,避免內容被蓋住 */
+  overflow-y: auto;
+}
+
+.page-title {
+  font-size: 0.9rem;
+  color: var(--text-muted);
+  margin: 0 0 0.75rem;
+}
+
+section[data-page] { display: none; }
+section[data-page].active { display: block; }
+
+/* ===== 分類九宮格(記帳頁範例內容)===== */
+.category-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+.category-btn {
+  background: var(--bg-card);
+  border: none;
+  border-radius: 10px;
+  color: var(--text-main);
+  padding: 1.2rem 0.5rem;
+  font-size: 1rem;
+  font-weight: 500;
+}
+.category-btn:hover, .category-btn:active {
+  background: var(--bg-card-hover);
+}
+
+/* ===== 底部固定分頁列 ===== */
+nav.bottom-tabs {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: var(--bg-card);
+  border-top: 0.5px solid var(--border-subtle);
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  padding: 6px 0;
+  padding-bottom: calc(6px + env(safe-area-inset-bottom));
+}
+
+.tab-btn {
+  background: none;
+  border: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 0;
+  color: var(--text-muted);
+  font-size: 11px;
+  cursor: pointer;
+}
+.tab-btn svg { width: 22px; height: 22px; }
+.tab-btn.active { color: var(--accent); }
+
+/* ===== 金額輸入彈出視窗 ===== */
+.amount-modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.6);
+  display: none;
+  align-items: flex-end;
+  z-index: 100;
+}
+.amount-modal.open { display: flex; }
+
+.amount-sheet {
+  width: 100%;
+  background: var(--bg-app);
+  border-radius: 16px 16px 0 0;
+  padding: 1rem 1rem calc(1rem + env(safe-area-inset-bottom));
+}
+
+.amount-sheet-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.75rem;
+}
+.amount-sheet-cat {
+  font-size: 1rem;
+  font-weight: 500;
+}
+.amount-sheet-close {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 1.3rem;
+  line-height: 1;
+  padding: 4px 8px;
+}
+
+.amount-display {
+  text-align: center;
+  font-size: 2.4rem;
+  font-weight: 500;
+  padding: 0.5rem 0 1rem;
+  min-height: 3.2rem;
+}
+.amount-display.placeholder { color: var(--text-muted); }
+
+.quick-amounts {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.quick-amount-btn {
+  background: var(--bg-card);
+  border: none;
+  border-radius: 10px;
+  color: var(--text-main);
+  padding: 0.8rem 0;
+  font-size: 1rem;
+}
+.quick-amount-btn:active { background: var(--bg-card-hover); }
+
+.keypad {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+.keypad-btn {
+  background: var(--bg-card);
+  border: none;
+  border-radius: 10px;
+  color: var(--text-main);
+  padding: 1rem 0;
+  font-size: 1.3rem;
+}
+.keypad-btn:active { background: var(--bg-card-hover); }
+.keypad-btn.confirm {
+  background: var(--accent);
+  color: #fff;
+  font-size: 1rem;
+  font-weight: 500;
+}
+.keypad-btn.confirm:disabled {
+  opacity: 0.4;
+}
+
+/* ===== 完成提示 Toast ===== */
+.toast {
+  position: fixed;
+  top: calc(env(safe-area-inset-top) + 16px);
+  left: 50%;
+  transform: translateX(-50%) translateY(-20px);
+  background: var(--bg-card);
+  color: var(--text-main);
+  padding: 10px 18px;
+  border-radius: 10px;
+  font-size: 0.9rem;
+  opacity: 0;
+  transition: opacity 0.2s, transform 0.2s;
+  z-index: 200;
+  pointer-events: none;
+}
+.toast.show {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+/* ===== 明細查詢頁:篩選膠囊 ===== */
+.filter-chips {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+  margin-bottom: 1rem;
+}
+.filter-chip {
+  flex: none;
+  background: var(--bg-card);
+  border: none;
+  border-radius: 999px;
+  color: var(--text-muted);
+  padding: 6px 14px;
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+.filter-chip.active {
+  background: var(--accent);
+  color: #fff;
+}
+
+.category-filter-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg-card);
+  color: var(--text-main);
+  border-radius: 999px;
+  padding: 5px 10px 5px 14px;
+  font-size: 0.85rem;
+  margin-bottom: 1rem;
+}
+.category-filter-tag button {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 1rem;
+  line-height: 1;
+  padding: 0 4px;
+}
+
+/* ===== 明細查詢頁:日期分組列表 ===== */
+.day-group { margin-bottom: 1.25rem; }
+.day-group-header {
+  display: flex;
+  justify-content: space-between;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  margin-bottom: 6px;
+  padding: 0 4px;
+}
+
+.record-row {
+  position: relative;
+  overflow: hidden;
+  border-radius: 10px;
+  margin-bottom: 6px;
+}
+.record-row-content {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: var(--bg-card);
+  padding: 0.75rem 1rem;
+  transform: translateX(0);
+  transition: transform 0.15s ease;
+  touch-action: pan-y;
+  position: relative;
+  z-index: 1;
+}
+.record-row-content.swiped { transform: translateX(-72px); }
+.record-cat { font-size: 0.95rem; }
+.record-amount { font-size: 0.95rem; font-weight: 500; }
+.record-delete-btn {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 72px;
+  height: 100%;
+  background: #d9463d;
+  color: #fff;
+  border: none;
+  font-size: 0.85rem;
+  z-index: 0;
+}
+
+.empty-hint {
+  color: var(--text-muted);
+  text-align: center;
+  padding: 2rem 0;
+  font-size: 0.9rem;
+}
+
+/* ===== 統計頁:月份切換 ===== */
+.month-nav {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 1.5rem;
+  margin-bottom: 1rem;
+  font-size: 1rem;
+}
+.month-nav-btn {
+  background: var(--bg-card);
+  border: none;
+  border-radius: 50%;
+  width: 32px;
+  height: 32px;
+  color: var(--text-main);
+  font-size: 1.1rem;
+  line-height: 1;
+  padding: 0;
+}
+.month-nav-btn:active { background: var(--bg-card-hover); }
+
+/* ===== 統計頁:本月總支出卡片 ===== */
+.stats-total-card {
+  background: var(--bg-card);
+  border-radius: 12px;
+  padding: 1rem;
+  text-align: center;
+  margin-bottom: 1.25rem;
+}
+.stats-total-label {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  margin: 0 0 4px;
+}
+.stats-total-value {
+  font-size: 1.6rem;
+  font-weight: 500;
+  margin: 0;
+}
+
+/* ===== 統計頁:分類長條圖(水平長條,適合窄螢幕) ===== */
+.stat-bar-row {
+  margin-bottom: 14px;
+  cursor: pointer;
+}
+.stat-bar-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.85rem;
+  margin-bottom: 5px;
+}
+.stat-bar-track {
+  background: var(--bg-card);
+  border-radius: 6px;
+  height: 10px;
+  overflow: hidden;
+}
+.stat-bar-fill {
+  background: var(--accent);
+  height: 100%;
+  border-radius: 6px;
+  transition: width 0.2s ease;
+}
+
+/* ===== 分類管理頁 ===== */
+.cat-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: var(--bg-card);
+  border-radius: 10px;
+  padding: 0.6rem 0.75rem;
+  margin-bottom: 6px;
+  gap: 8px;
+}
+.cat-name {
+  font-size: 0.95rem;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cat-row-actions {
+  display: flex;
+  gap: 4px;
+  flex: none;
+}
+.cat-icon-btn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  padding: 4px 6px;
+  border-radius: 6px;
+}
+.cat-icon-btn:active { background: var(--bg-card-hover); }
+.cat-icon-btn.danger { color: #e8837d; }
+.cat-icon-btn:disabled { opacity: 0.3; }
+
+.cat-edit-input {
+  flex: 1;
+  min-width: 0;
+  background: var(--bg-app);
+  border: 0.5px solid var(--border-subtle);
+  border-radius: 8px;
+  color: var(--text-main);
+  padding: 6px 8px;
+  font-size: 0.95rem;
+}
+
+.cat-add-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 0.5rem;
+}
+.cat-add-row input {
+  flex: 1;
+  background: var(--bg-card);
+  border: 0.5px solid var(--border-subtle);
+  border-radius: 8px;
+  color: var(--text-main);
+  padding: 8px 10px;
+  font-size: 0.95rem;
+}
+.cat-add-row button {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 0 1rem;
+  font-size: 0.9rem;
+}
+</style>
+</head>
+
+<body>
+
+<main class="app-content">
+
+  <!-- ===== 分頁一:記帳輸入(預設顯示) ===== -->
+  <section data-page="input" class="active">
+    <p class="page-title">首頁 · 記帳輸入</p>
+    <div class="category-grid" id="categoryGrid">
+      <!-- 分類按鈕由 JS 動態產生,方便日後從分類管理頁讀取設定 -->
+    </div>
+  </section>
+
+  <!-- ===== 分頁二:統計 ===== -->
+  <section data-page="stats">
+    <div class="month-nav">
+      <button class="month-nav-btn" id="prevMonthBtn" aria-label="上個月">‹</button>
+      <span id="monthLabel">2026年7月</span>
+      <button class="month-nav-btn" id="nextMonthBtn" aria-label="下個月">›</button>
+    </div>
+    <div class="stats-total-card">
+      <p class="stats-total-label">本月總支出</p>
+      <p class="stats-total-value" id="statsTotalValue">$0</p>
+    </div>
+    <div id="statsBars"></div>
+  </section>
+
+  <!-- ===== 分頁三:明細 ===== -->
+  <section data-page="list">
+    <p class="page-title">消費明細</p>
+    <div class="filter-chips" id="filterChips">
+      <button class="filter-chip active" data-filter="all">全部</button>
+      <button class="filter-chip" data-filter="month">本月</button>
+      <button class="filter-chip" data-filter="week">本週</button>
+    </div>
+    <div id="categoryFilterTag"></div>
+    <div id="recordListContainer"></div>
+  </section>
+
+  <!-- ===== 分頁四:分類管理 ===== -->
+  <section data-page="categories">
+    <p class="page-title">分類管理</p>
+    <div id="categoryManageList"></div>
+    <div class="cat-add-row">
+      <input type="text" id="newCategoryInput" placeholder="新分類名稱" maxlength="10">
+      <button id="addCategoryBtn">新增</button>
+    </div>
+  </section>
+
+  <!-- ===== 分頁五:設定 ===== -->
+  <section data-page="settings">
+    <p class="page-title">設定</p>
+    <p style="color:var(--text-muted)">(同步/備份設定區塊,之後補上)</p>
+  </section>
+
+</main>
+
+<!-- ===== 底部固定分頁列 ===== -->
+<nav class="bottom-tabs" id="bottomTabs">
+  <button class="tab-btn active" data-target="input">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+    記一筆
+  </button>
+  <button class="tab-btn" data-target="stats">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20V10M12 20V4M20 20v-7"/></svg>
+    統計
+  </button>
+  <button class="tab-btn" data-target="list">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>
+    明細
+  </button>
+  <button class="tab-btn" data-target="categories">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/></svg>
+    分類
+  </button>
+  <button class="tab-btn" data-target="settings">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+    設定
+  </button>
+</nav>
+
+<!-- ===== 金額輸入彈出視窗(點分類後跳出) ===== -->
+<div class="amount-modal" id="amountModal">
+  <div class="amount-sheet">
+    <div class="amount-sheet-header">
+      <span class="amount-sheet-cat" id="amountSheetCat">分類名稱</span>
+      <button class="amount-sheet-close" id="amountSheetClose" aria-label="關閉">✕</button>
+    </div>
+
+    <div class="amount-display placeholder" id="amountDisplay">輸入金額</div>
+
+    <!-- 快捷金額:點下去直接送出,不用再按確認 -->
+    <div class="quick-amounts" id="quickAmounts"></div>
+
+    <!-- 自訂數字鍵盤 -->
+    <div class="keypad" id="keypad">
+      <button class="keypad-btn" data-key="1">1</button>
+      <button class="keypad-btn" data-key="2">2</button>
+      <button class="keypad-btn" data-key="3">3</button>
+      <button class="keypad-btn" data-key="4">4</button>
+      <button class="keypad-btn" data-key="5">5</button>
+      <button class="keypad-btn" data-key="6">6</button>
+      <button class="keypad-btn" data-key="7">7</button>
+      <button class="keypad-btn" data-key="8">8</button>
+      <button class="keypad-btn" data-key="9">9</button>
+      <button class="keypad-btn" data-key="back">⌫</button>
+      <button class="keypad-btn" data-key="0">0</button>
+      <button class="keypad-btn confirm" data-key="confirm" id="confirmBtn" disabled>完成</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 完成提示 ===== -->
+<div class="toast" id="toast"></div>
+
+<script>
+/*
+  ===== 架構說明 =====
+  這份檔案採「單頁多 section」模式:
+  - 每個分頁是一個 <section data-page="xxx">,平常都存在於 DOM 中,只是用 CSS 隱藏
+  - 點擊底部分頁按鈕時,只切換 active class,不做頁面重新載入
+  - 之後要新增功能只要:
+      1. 在 main 裡新增一個 <section data-page="新頁面">
+      2. 在 bottom-tabs 裡新增對應的 <button data-target="新頁面">
+    兩邊的 data-page / data-target 值要一致,JS 完全不用改
+*/
+
+const tabs = document.querySelectorAll(".tab-btn");
+const pages = document.querySelectorAll("section[data-page]");
+
+function switchPage(target) {
+  pages.forEach(p => p.classList.toggle("active", p.dataset.page === target));
+  tabs.forEach(t => t.classList.toggle("active", t.dataset.target === target));
+  // 每次切到明細頁都重新讀取資料,確保剛記的帳馬上看得到
+  if (target === "list") renderRecordList();
+  if (target === "stats") renderStats();
+  if (target === "categories") renderCategoryManageList();
+}
+
+document.getElementById("bottomTabs").addEventListener("click", (e) => {
+  const btn = e.target.closest(".tab-btn");
+  if (!btn) return;
+  switchPage(btn.dataset.target);
+});
+
+/*
+  ===== 分類資料 =====
+  存放在 localStorage,由「分類管理頁」新增/編輯/刪除/排序,
+  記帳輸入頁的九宮格、統計頁、明細頁全部讀取同一份資料,不會各自維護一份。
+*/
+const CATEGORIES_KEY = "ledger_categories";
+const DEFAULT_CATEGORIES = [
+  { id: "food", name: "飲食" },
+  { id: "transport", name: "交通" },
+  { id: "drink", name: "飲料" }
+];
+
+function loadCategories() {
+  const raw = localStorage.getItem(CATEGORIES_KEY);
+  if (raw) return JSON.parse(raw);
+  localStorage.setItem(CATEGORIES_KEY, JSON.stringify(DEFAULT_CATEGORIES));
+  return DEFAULT_CATEGORIES.slice();
+}
+
+function saveCategories(list) {
+  localStorage.setItem(CATEGORIES_KEY, JSON.stringify(list));
+}
+
+function makeCategoryId() {
+  return "cat_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
+}
+
+let categories = loadCategories();
+
+/*
+  ===== 快捷金額(之後從設定頁讀取,先寫死) =====
+*/
+const quickAmounts = [60, 100, 150];
+
+/*
+  ===== 本地資料庫(先用 localStorage,之後可以再加 Gist 同步) =====
+  key: "ledger_records",value: JSON 陣列
+*/
+const DB_KEY = "ledger_records";
+
+function loadRecords() {
+  const raw = localStorage.getItem(DB_KEY);
+  return raw ? JSON.parse(raw) : [];
+}
+
+function saveRecord(record) {
+  const records = loadRecords();
+  records.push(record);
+  localStorage.setItem(DB_KEY, JSON.stringify(records));
+}
+
+function makeRecordId(date) {
+  const datePart = date.toISOString().slice(0,10).replace(/-/g,"");
+  const randPart = Math.random().toString(36).slice(2,6);
+  return `${datePart}-${randPart}`;
+}
+
+function addRecord(amount, categoryId) {
+  const now = new Date();
+  const record = {
+    id: makeRecordId(now),
+    ts: Math.floor(now.getTime() / 1000),
+    date: now.toISOString().slice(0,10),
+    amount: amount,
+    categoryId: categoryId,
+    note: ""
+  };
+  saveRecord(record);
+  return record;
+}
+
+function findLastRecordByCategory(categoryId) {
+  const records = loadRecords();
+  for (let i = records.length - 1; i >= 0; i--) {
+    if (records[i].categoryId === categoryId) return records[i];
+  }
+  return null;
+}
+
+/* ===== Toast 提示 ===== */
+let toastTimer = null;
+function showToast(text) {
+  const toast = document.getElementById("toast");
+  toast.textContent = text;
+  toast.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => toast.classList.remove("show"), 1200);
+}
+
+/* ===== 金額輸入彈出視窗邏輯 ===== */
+const amountModal = document.getElementById("amountModal");
+const amountDisplay = document.getElementById("amountDisplay");
+const amountSheetCat = document.getElementById("amountSheetCat");
+const quickAmountsEl = document.getElementById("quickAmounts");
+const confirmBtn = document.getElementById("confirmBtn");
+
+let currentCategory = null; // 目前正在記帳的分類
+let inputBuffer = "";        // 使用者正在輸入的數字字串
+
+function findCategory(id) {
+  return categories.find(c => c.id === id);
+}
+
+function openAmountModal(categoryId) {
+  currentCategory = findCategory(categoryId);
+  inputBuffer = "";
+  amountSheetCat.textContent = currentCategory.name;
+  updateAmountDisplay();
+  amountModal.classList.add("open");
+}
+
+function closeAmountModal() {
+  amountModal.classList.remove("open");
+  currentCategory = null;
+  inputBuffer = "";
+}
+
+function updateAmountDisplay() {
+  if (inputBuffer === "") {
+    amountDisplay.textContent = "輸入金額";
+    amountDisplay.classList.add("placeholder");
+    confirmBtn.disabled = true;
+  } else {
+    amountDisplay.textContent = `$${inputBuffer}`;
+    amountDisplay.classList.remove("placeholder");
+    confirmBtn.disabled = false;
+  }
+}
+
+function renderQuickAmounts() {
+  quickAmountsEl.innerHTML = "";
+  quickAmounts.forEach(amount => {
+    const btn = document.createElement("button");
+    btn.className = "quick-amount-btn";
+    btn.textContent = `$${amount}`;
+    // 快捷金額:點下去立刻送出,不需要再按確認鍵
+    btn.addEventListener("click", () => submitRecord(amount));
+    quickAmountsEl.appendChild(btn);
+  });
+}
+
+function submitRecord(amount) {
+  if (!currentCategory) return;
+  addRecord(amount, currentCategory.id);
+  showToast(`已記錄 ${currentCategory.name} $${amount}`);
+  closeAmountModal();
+}
+
+/* 數字鍵盤點擊處理 */
+document.getElementById("keypad").addEventListener("click", (e) => {
+  const btn = e.target.closest(".keypad-btn");
+  if (!btn) return;
+  const key = btn.dataset.key;
+
+  if (key === "back") {
+    inputBuffer = inputBuffer.slice(0, -1);
+    updateAmountDisplay();
+    return;
+  }
+  if (key === "confirm") {
+    const amount = parseInt(inputBuffer, 10);
+    if (amount > 0) submitRecord(amount);
+    return;
+  }
+  // 數字鍵:限制最多輸入 6 位數,避免異常大數字
+  if (inputBuffer.length < 6) {
+    inputBuffer += key;
+    updateAmountDisplay();
+  }
+});
+
+document.getElementById("amountSheetClose").addEventListener("click", closeAmountModal);
+// 點擊半透明背景也能關閉,但點擊視窗內容不會關閉
+amountModal.addEventListener("click", (e) => {
+  if (e.target === amountModal) closeAmountModal();
+});
+
+/* ===== 分類九宮格:點擊開啟金額輸入,長按複製上一筆同分類記錄 ===== */
+const LONG_PRESS_MS = 550;
+
+function renderCategoryGrid() {
+  const grid = document.getElementById("categoryGrid");
+  grid.innerHTML = "";
+  categories.forEach(cat => {
+    const btn = document.createElement("button");
+    btn.className = "category-btn";
+    btn.textContent = cat.name;
+
+    let pressTimer = null;
+    let longPressFired = false;
+
+    const startPress = () => {
+      longPressFired = false;
+      pressTimer = setTimeout(() => {
+        longPressFired = true;
+        const last = findLastRecordByCategory(cat.id);
+        if (last) {
+          addRecord(last.amount, cat.id);
+          showToast(`已複製上一筆 ${cat.name} $${last.amount}`);
+        } else {
+          openAmountModal(cat.id); // 沒有歷史紀錄時,退回一般輸入流程
+        }
+      }, LONG_PRESS_MS);
+    };
+    const cancelPress = () => clearTimeout(pressTimer);
+
+    btn.addEventListener("pointerdown", startPress);
+    btn.addEventListener("pointerup", cancelPress);
+    btn.addEventListener("pointerleave", cancelPress);
+    btn.addEventListener("click", () => {
+      if (longPressFired) return; // 長按已經處理過,單擊事件不再重複觸發
+      openAmountModal(cat.id);
+    });
+
+    grid.appendChild(btn);
+  });
+}
+
+renderCategoryGrid();
+renderQuickAmounts();
+
+/*
+  ===== 明細查詢頁 =====
+  串接同一份 loadRecords() 資料,依篩選條件過濾、依日期分組、算每日小計
+*/
+let currentFilter = "all";
+let categoryFilter = null;   // 從統計頁點長條圖進來時,會設定這個值
+let filterMonthDate = null;  // 從統計頁點長條圖進來時,鎖定當時檢視的月份
+
+function isInMonth(ts, now) {
+  const d = new Date(ts * 1000);
+  return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
+}
+function isInWeek(ts, now) {
+  const d = new Date(ts * 1000);
+  const day = now.getDay() === 0 ? 7 : now.getDay(); // 週一為第1天
+  const monday = new Date(now);
+  monday.setHours(0,0,0,0);
+  monday.setDate(now.getDate() - (day - 1));
+  return d >= monday;
+}
+
+function filterRecords(records) {
+  let result = records;
+  if (categoryFilter) result = result.filter(r => r.categoryId === categoryFilter);
+
+  // 從統計頁點進來的月份鎖定,優先於一般的全部/本月/本週篩選膠囊
+  if (filterMonthDate) return result.filter(r => isInStatsMonth(r.ts, filterMonthDate));
+
+  if (currentFilter === "all") return result;
+  const now = new Date();
+  if (currentFilter === "month") return result.filter(r => isInMonth(r.ts, now));
+  if (currentFilter === "week") return result.filter(r => isInWeek(r.ts, now));
+  return result;
+}
+
+function groupByDate(records) {
+  // 依 ts 由新到舊排序,再依 date 分組
+  const sorted = [...records].sort((a, b) => b.ts - a.ts);
+  const groups = [];
+  const map = {};
+  sorted.forEach(r => {
+    if (!map[r.date]) {
+      map[r.date] = { date: r.date, records: [], total: 0 };
+      groups.push(map[r.date]);
+    }
+    map[r.date].records.push(r);
+    map[r.date].total += r.amount;
+  });
+  return groups;
+}
+
+function formatDateLabel(dateStr) {
+  const d = new Date(dateStr + "T00:00:00");
+  const weekDays = ["日","一","二","三","四","五","六"];
+  return `${dateStr.slice(5)} 週${weekDays[d.getDay()]}`;
+}
+
+function catNameOf(id) {
+  const c = findCategory(id);
+  return c ? c.name : id;
+}
+
+function deleteRecord(id) {
+  const records = loadRecords().filter(r => r.id !== id);
+  localStorage.setItem(DB_KEY, JSON.stringify(records));
+  renderRecordList();
+  showToast("已刪除該筆紀錄");
+}
+
+function renderCategoryFilterTag() {
+  const el = document.getElementById("categoryFilterTag");
+  const chipsEl = document.getElementById("filterChips");
+
+  if (!categoryFilter) {
+    el.innerHTML = "";
+    chipsEl.style.display = "";
+    return;
+  }
+
+  // 有月份鎖定時,一般的全部/本月/本週膠囊先隱藏,避免看起來像可以疊加篩選
+  chipsEl.style.display = filterMonthDate ? "none" : "";
+
+  const monthText = filterMonthDate
+    ? ` · ${filterMonthDate.getFullYear()}年${filterMonthDate.getMonth() + 1}月`
+    : "";
+
+  el.innerHTML = `
+    <span class="category-filter-tag">
+      篩選:${catNameOf(categoryFilter)}${monthText}
+      <button id="clearCategoryFilterBtn" aria-label="清除分類篩選">✕</button>
+    </span>
+  `;
+  document.getElementById("clearCategoryFilterBtn").addEventListener("click", () => {
+    categoryFilter = null;
+    filterMonthDate = null;
+    renderRecordList();
+  });
+}
+
+function renderRecordList() {
+  renderCategoryFilterTag();
+  const container = document.getElementById("recordListContainer");
+  const records = filterRecords(loadRecords());
+
+  if (records.length === 0) {
+    container.innerHTML = `<p class="empty-hint">這個範圍內還沒有記帳紀錄</p>`;
+    return;
+  }
+
+  const groups = groupByDate(records);
+  container.innerHTML = "";
+
+  groups.forEach(group => {
+    const groupEl = document.createElement("div");
+    groupEl.className = "day-group";
+    groupEl.innerHTML = `
+      <div class="day-group-header">
+        <span>${formatDateLabel(group.date)}</span>
+        <span>小計 $${group.total}</span>
+      </div>
+    `;
+
+    group.records.forEach(r => {
+      const row = document.createElement("div");
+      row.className = "record-row";
+      row.innerHTML = `
+        <div class="record-row-content">
+          <span class="record-cat">${catNameOf(r.categoryId)}</span>
+          <span class="record-amount">$${r.amount}</span>
+        </div>
+        <button class="record-delete-btn">刪除</button>
+      `;
+
+      const content = row.querySelector(".record-row-content");
+      const deleteBtn = row.querySelector(".record-delete-btn");
+
+      // 左滑顯示刪除鍵,右滑或再次點擊收回
+      let startX = 0;
+      let dragging = false;
+
+      content.addEventListener("pointerdown", (e) => {
+        startX = e.clientX;
+        dragging = true;
+      });
+      content.addEventListener("pointerup", (e) => {
+        if (!dragging) return;
+        dragging = false;
+        const diff = e.clientX - startX;
+        if (diff < -30) {
+          content.classList.add("swiped");
+        } else if (diff > 30) {
+          content.classList.remove("swiped");
+        }
+      });
+      // 點擊已滑開的列,先收回而不是誤觸其他動作
+      content.addEventListener("click", () => {
+        if (content.classList.contains("swiped")) {
+          content.classList.remove("swiped");
+        }
+      });
+
+      deleteBtn.addEventListener("click", () => deleteRecord(r.id));
+
+      groupEl.appendChild(row);
+    });
+
+    container.appendChild(groupEl);
+  });
+}
+
+document.getElementById("filterChips").addEventListener("click", (e) => {
+  const chip = e.target.closest(".filter-chip");
+  if (!chip) return;
+  currentFilter = chip.dataset.filter;
+  categoryFilter = null;
+  filterMonthDate = null;
+  document.querySelectorAll(".filter-chip").forEach(c => c.classList.toggle("active", c === chip));
+  renderRecordList();
+});
+
+/*
+  ===== 統計頁 =====
+  串接同一份 loadRecords() 資料,依「目前檢視的月份」加總各分類金額
+*/
+let statsMonthOffset = 0; // 0 = 本月,-1 = 上個月,+1 = 下個月(禁止超過本月)
+
+function getStatsMonthDate() {
+  const d = new Date();
+  d.setDate(1); // 避免跨月時日期溢位(例如31號減一個月會跳兩個月)
+  d.setMonth(d.getMonth() + statsMonthOffset);
+  return d;
+}
+
+function isInStatsMonth(ts, monthDate) {
+  const d = new Date(ts * 1000);
+  return d.getFullYear() === monthDate.getFullYear() && d.getMonth() === monthDate.getMonth();
+}
+
+function computeCategoryTotals(records) {
+  const totals = {};
+  records.forEach(r => {
+    totals[r.categoryId] = (totals[r.categoryId] || 0) + r.amount;
+  });
+  // 依金額由大到小排序,花最多的分類排最上面
+  return Object.entries(totals)
+    .map(([categoryId, amount]) => ({ categoryId, amount }))
+    .sort((a, b) => b.amount - a.amount);
+}
+
+function renderStats() {
+  const monthDate = getStatsMonthDate();
+  document.getElementById("monthLabel").textContent =
+    `${monthDate.getFullYear()}年${monthDate.getMonth() + 1}月`;
+
+  // 下個月按鈕:不能超過目前這個月
+  const now = new Date();
+  const isCurrentMonth = monthDate.getFullYear() === now.getFullYear() && monthDate.getMonth() === now.getMonth();
+  document.getElementById("nextMonthBtn").disabled = isCurrentMonth;
+
+  const monthRecords = loadRecords().filter(r => isInStatsMonth(r.ts, monthDate));
+  const total = monthRecords.reduce((sum, r) => sum + r.amount, 0);
+  document.getElementById("statsTotalValue").textContent = `$${total}`;
+
+  const catTotals = computeCategoryTotals(monthRecords);
+  const barsEl = document.getElementById("statsBars");
+  barsEl.innerHTML = "";
+
+  if (catTotals.length === 0) {
+    barsEl.innerHTML = `<p class="empty-hint">這個月還沒有記帳紀錄</p>`;
+    return;
+  }
+
+  const maxAmount = catTotals[0].amount;
+
+  catTotals.forEach(item => {
+    const row = document.createElement("div");
+    row.className = "stat-bar-row";
+    const widthPercent = Math.round((item.amount / maxAmount) * 100);
+    row.innerHTML = `
+      <div class="stat-bar-labels">
+        <span>${catNameOf(item.categoryId)}</span>
+        <span>$${item.amount}</span>
+      </div>
+      <div class="stat-bar-track">
+        <div class="stat-bar-fill" style="width:${widthPercent}%"></div>
+      </div>
+    `;
+    // 點長條 = 跳到明細頁,只看「這個月 + 這個分類」的紀錄
+    row.addEventListener("click", () => {
+      categoryFilter = item.categoryId;
+      filterMonthDate = getStatsMonthDate();
+      switchPage("list");
+    });
+    barsEl.appendChild(row);
+  });
+}
+
+document.getElementById("prevMonthBtn").addEventListener("click", () => {
+  statsMonthOffset -= 1;
+  renderStats();
+});
+document.getElementById("nextMonthBtn").addEventListener("click", () => {
+  if (statsMonthOffset < 0) {
+    statsMonthOffset += 1;
+    renderStats();
+  }
+});
+
+/*
+  ===== 分類管理頁 =====
+  對 categories 陣列做增/刪/改/排序,存回 localStorage,
+  並重新渲染記帳輸入頁的九宮格,確保兩邊永遠是同一份資料。
+*/
+let editingCategoryId = null; // 目前正在編輯名稱的分類 id,null 代表沒有在編輯
+
+function persistCategoriesAndSync() {
+  saveCategories(categories);
+  renderCategoryGrid();     // 同步更新記帳輸入頁的九宮格
+  renderCategoryManageList(); // 重新渲染本頁清單
+}
+
+function moveCategory(id, direction) {
+  const index = categories.findIndex(c => c.id === id);
+  const targetIndex = direction === "up" ? index - 1 : index + 1;
+  if (targetIndex < 0 || targetIndex >= categories.length) return;
+  [categories[index], categories[targetIndex]] = [categories[targetIndex], categories[index]];
+  persistCategoriesAndSync();
+}
+
+function startEditCategory(id) {
+  editingCategoryId = id;
+  renderCategoryManageList();
+}
+
+function cancelEditCategory() {
+  editingCategoryId = null;
+  renderCategoryManageList();
+}
+
+function saveEditCategory(id, newName) {
+  const trimmed = newName.trim();
+  if (!trimmed) {
+    showToast("名稱不能是空白");
+    return;
+  }
+  const cat = findCategory(id);
+  cat.name = trimmed;
+  editingCategoryId = null;
+  persistCategoriesAndSync();
+  showToast("分類已更新");
+}
+
+function deleteCategory(id) {
+  if (categories.length <= 1) {
+    showToast("至少要保留一個分類");
+    return;
+  }
+  if (!confirm(`確定要刪除「${catNameOf(id)}」這個分類嗎?`)) return;
+  categories = categories.filter(c => c.id !== id);
+  persistCategoriesAndSync();
+  showToast("分類已刪除");
+}
+
+function addCategory(name) {
+  const trimmed = name.trim();
+  if (!trimmed) {
+    showToast("請輸入分類名稱");
+    return;
+  }
+  categories.push({ id: makeCategoryId(), name: trimmed });
+  persistCategoriesAndSync();
+  document.getElementById("newCategoryInput").value = "";
+  showToast("已新增分類");
+}
+
+function renderCategoryManageList() {
+  const listEl = document.getElementById("categoryManageList");
+  listEl.innerHTML = "";
+
+  categories.forEach((cat, index) => {
+    const row = document.createElement("div");
+    row.className = "cat-row";
+
+    if (editingCategoryId === cat.id) {
+      // 編輯狀態:名稱換成輸入框,操作鍵換成儲存/取消
+      row.innerHTML = `
+        <input type="text" class="cat-edit-input" value="${cat.name}" maxlength="10">
+        <div class="cat-row-actions">
+          <button class="cat-icon-btn" data-action="save">儲存</button>
+          <button class="cat-icon-btn" data-action="cancel">取消</button>
+        </div>
+      `;
+      const input = row.querySelector(".cat-edit-input");
+      row.querySelector('[data-action="save"]').addEventListener("click", () => saveEditCategory(cat.id, input.value));
+      row.querySelector('[data-action="cancel"]').addEventListener("click", cancelEditCategory);
+      // Enter 鍵直接儲存,減少一次點擊
+      input.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") saveEditCategory(cat.id, input.value);
+      });
+    } else {
+      row.innerHTML = `
+        <span class="cat-name">${cat.name}</span>
+        <div class="cat-row-actions">
+          <button class="cat-icon-btn" data-action="up" ${index === 0 ? "disabled" : ""}>▲</button>
+          <button class="cat-icon-btn" data-action="down" ${index === categories.length - 1 ? "disabled" : ""}>▼</button>
+          <button class="cat-icon-btn" data-action="edit">編輯</button>
+          <button class="cat-icon-btn danger" data-action="delete">刪除</button>
+        </div>
+      `;
+      row.querySelector('[data-action="up"]').addEventListener("click", () => moveCategory(cat.id, "up"));
+      row.querySelector('[data-action="down"]').addEventListener("click", () => moveCategory(cat.id, "down"));
+      row.querySelector('[data-action="edit"]').addEventListener("click", () => startEditCategory(cat.id));
+      row.querySelector('[data-action="delete"]').addEventListener("click", () => deleteCategory(cat.id));
+    }
+
+    listEl.appendChild(row);
+  });
+}
+
+document.getElementById("addCategoryBtn").addEventListener("click", () => {
+  addCategory(document.getElementById("newCategoryInput").value);
+});
+document.getElementById("newCategoryInput").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") addCategory(e.target.value);
+});
+</script>
+
+</body>
+</html>
