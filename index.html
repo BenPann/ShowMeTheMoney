@@ -2,13 +2,27 @@
 <html lang="zh-Hant" data-theme="dark">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>快速記帳</title>
 
 <!-- iOS 加入主畫面設定,先預留,之後補圖示 -->
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="記帳">
+
+<!-- 提早套用已儲存的主題/文字大小設定,避免每次開啟先閃一下預設樣式再切換 -->
+<script>
+(function () {
+  try {
+    var theme = localStorage.getItem("ledger_theme") || "dark";
+    document.documentElement.setAttribute("data-theme", theme);
+
+    var steps = { "1": 87.5, "2": 93.75, "3": 100, "4": 112.5, "5": 125 };
+    var scale = localStorage.getItem("ledger_font_scale") || "3";
+    document.documentElement.style.fontSize = (steps[scale] || 100) + "%";
+  } catch (e) { /* localStorage 不可用時,直接使用預設樣式即可 */ }
+})();
+</script>
 
 <!-- Pico.css 極輕量框架,只負責基礎排版與表單元件樣式 -->
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
@@ -25,7 +39,23 @@
   --accent: #4a90e2;
 }
 
+:root[data-theme="light"] {
+  --bg-app: #f2f2f7;
+  --bg-card: #ffffff;
+  --bg-card-hover: #e5e5ea;
+  --border-subtle: #d1d1d6;
+  --text-main: #1c1c1e;
+  --text-muted: #6e6e73;
+  --accent: #3d7fd9;
+}
+
 * { box-sizing: border-box; }
+
+html, body {
+  /* 只允許垂直捲動,雙指縮放(pinch-zoom)不在允許清單內,瀏覽器就不會觸發縮放 */
+  touch-action: pan-y;
+  -ms-touch-action: pan-y;
+}
 
 body {
   background: var(--bg-app);
@@ -442,6 +472,66 @@ nav.bottom-tabs {
   padding: 0 1rem;
   font-size: 0.9rem;
 }
+
+/* ===== 橫向鎖定提示遮罩 ===== */
+.rotate-lock-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: var(--bg-app);
+  z-index: 999;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  color: var(--text-muted);
+  font-size: 1rem;
+  text-align: center;
+  padding: 1rem;
+}
+.rotate-lock-overlay p:first-child { font-size: 2.5rem; margin: 0; }
+
+@media (orientation: landscape) {
+  .rotate-lock-overlay { display: flex; }
+  /* 橫向時把底下所有操作內容藏起來,避免使用者透過遮罩縫隙誤觸 */
+  main.app-content, nav.bottom-tabs, .amount-modal {
+    display: none !important;
+  }
+}
+
+/* ===== 設定頁 ===== */
+.settings-row {
+  background: var(--bg-card);
+  border-radius: 10px;
+  padding: 0.75rem 1rem;
+  margin-bottom: 10px;
+}
+.settings-row-label {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  margin: 0 0 8px;
+}
+.segmented {
+  display: flex;
+  background: var(--bg-app);
+  border-radius: 8px;
+  padding: 3px;
+  gap: 2px;
+}
+.segmented-btn {
+  flex: 1;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  padding: 7px 0;
+  border-radius: 6px;
+  text-align: center;
+}
+.segmented-btn.active {
+  background: var(--accent);
+  color: #fff;
+}
 </style>
 </head>
 
@@ -496,7 +586,25 @@ nav.bottom-tabs {
   <!-- ===== 分頁五:設定 ===== -->
   <section data-page="settings">
     <p class="page-title">設定</p>
-    <p style="color:var(--text-muted)">(同步/備份設定區塊,之後補上)</p>
+
+    <div class="settings-row">
+      <p class="settings-row-label">外觀</p>
+      <div class="segmented" id="themeSegmented">
+        <button class="segmented-btn" data-value="dark">深色</button>
+        <button class="segmented-btn" data-value="light">淺色</button>
+      </div>
+    </div>
+
+    <div class="settings-row">
+      <p class="settings-row-label">畫面文字大小</p>
+      <div class="segmented" id="fontScaleSegmented">
+        <button class="segmented-btn" data-value="1">XS</button>
+        <button class="segmented-btn" data-value="2">S</button>
+        <button class="segmented-btn" data-value="3">M</button>
+        <button class="segmented-btn" data-value="4">L</button>
+        <button class="segmented-btn" data-value="5">XL</button>
+      </div>
+    </div>
   </section>
 
 </main>
@@ -559,7 +667,34 @@ nav.bottom-tabs {
 <!-- ===== 完成提示 ===== -->
 <div class="toast" id="toast"></div>
 
+<!-- ===== 橫向鎖定提示:iOS Safari 不支援真正的方向鎖定 API,用這層蓋住內容代替 ===== -->
+<div class="rotate-lock-overlay" id="rotateLockOverlay">
+  <p>📱</p>
+  <p>請將手機轉回直向使用</p>
+</div>
+
 <script>
+/*
+  ===== 禁止縮放:雙擊放大 / 雙指縮放 =====
+  這裡跟 <meta viewport> 與 CSS touch-action 是三層保險,
+  因為不同 iOS/瀏覽器版本對前兩者的支援程度不一,加上這層 JS 判斷最保險。
+*/
+
+// Safari 專屬的手勢事件(雙指縮放會觸發這組事件),直接攔截取消
+document.addEventListener("gesturestart", (e) => e.preventDefault());
+document.addEventListener("gesturechange", (e) => e.preventDefault());
+document.addEventListener("gestureend", (e) => e.preventDefault());
+
+// 雙擊放大的判斷:如果兩次 touchend 間隔在 300ms 內,視為雙擊,取消預設放大行為
+let lastTouchEndTime = 0;
+document.addEventListener("touchend", (e) => {
+  const now = Date.now();
+  if (now - lastTouchEndTime <= 300) {
+    e.preventDefault();
+  }
+  lastTouchEndTime = now;
+}, { passive: false });
+
 /*
   ===== 架構說明 =====
   這份檔案採「單頁多 section」模式:
@@ -1195,6 +1330,43 @@ document.getElementById("addCategoryBtn").addEventListener("click", () => {
 document.getElementById("newCategoryInput").addEventListener("keydown", (e) => {
   if (e.key === "Enter") addCategory(e.target.value);
 });
+
+/*
+  ===== 設定頁:外觀主題 / 文字大小 =====
+  實際套用邏輯已經寫在 <head> 最前面的行內 script(避免開啟時畫面閃一下),
+  這裡只負責:切換時即時套用 + 記住選擇 + 更新按鈕的選中樣式。
+*/
+const FONT_SCALE_STEPS = { "1": 87.5, "2": 93.75, "3": 100, "4": 112.5, "5": 125 };
+
+function applyTheme(value) {
+  localStorage.setItem("ledger_theme", value);
+  document.documentElement.setAttribute("data-theme", value);
+  document.querySelectorAll("#themeSegmented .segmented-btn").forEach(btn =>
+    btn.classList.toggle("active", btn.dataset.value === value)
+  );
+}
+
+function applyFontScale(value) {
+  localStorage.setItem("ledger_font_scale", value);
+  document.documentElement.style.fontSize = FONT_SCALE_STEPS[value] + "%";
+  document.querySelectorAll("#fontScaleSegmented .segmented-btn").forEach(btn =>
+    btn.classList.toggle("active", btn.dataset.value === value)
+  );
+}
+
+document.getElementById("themeSegmented").addEventListener("click", (e) => {
+  const btn = e.target.closest(".segmented-btn");
+  if (btn) applyTheme(btn.dataset.value);
+});
+
+document.getElementById("fontScaleSegmented").addEventListener("click", (e) => {
+  const btn = e.target.closest(".segmented-btn");
+  if (btn) applyFontScale(btn.dataset.value);
+});
+
+// 開啟頁面時,讓設定頁的按鈕反映目前實際生效中的設定(跟 <head> 裡讀到的值一致)
+applyTheme(localStorage.getItem("ledger_theme") || "dark");
+applyFontScale(localStorage.getItem("ledger_font_scale") || "3");
 </script>
 
 </body>
