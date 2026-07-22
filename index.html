@@ -10,7 +10,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="記帳">
 
-<!-- 提早套用已儲存的主題/文字大小設定,避免每次開啟先閃一下預設樣式再切換 -->
+<!-- 提早套用已儲存的主題/文字大小/背景圖片設定,避免每次開啟先閃一下預設樣式再切換 -->
 <script>
 (function () {
   try {
@@ -20,6 +20,11 @@
     var steps = { "1": 87.5, "2": 93.75, "3": 100, "4": 112.5, "5": 125 };
     var scale = localStorage.getItem("ledger_font_scale") || "3";
     document.documentElement.style.fontSize = (steps[scale] || 100) + "%";
+
+    var bgImage = localStorage.getItem("ledger_bg_image");
+    if (bgImage) {
+      document.documentElement.style.setProperty("--custom-bg-image", 'url("' + bgImage + '")');
+    }
   } catch (e) { /* localStorage 不可用時,直接使用預設樣式即可 */ }
 })();
 </script>
@@ -58,7 +63,11 @@ html, body {
 }
 
 body {
-  background: var(--bg-app);
+  background-color: var(--bg-app);
+  background-image: var(--custom-bg-image, none);
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
   color: var(--text-main);
   margin: 0;
   padding: 0;
@@ -261,6 +270,11 @@ nav.bottom-tabs {
   display: flex;
   align-items: center;
   justify-content: center;
+}
+/* 分類管理頁「編輯中」的那一列高度是 36px,圖示按鈕跟著縮小對齊,新增分類列(42px)不受影響 */
+.cat-row .cat-icon-picker-btn {
+  width: 36px;
+  height: 36px;
 }
 .icon-picker-grid {
   display: grid;
@@ -512,15 +526,22 @@ nav.bottom-tabs {
 }
 .cat-row-actions {
   display: flex;
+  align-items: center;
   gap: 4px;
   flex: none;
 }
 .cat-icon-btn {
+  height: 36px;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
   background: none;
   border: none;
   color: var(--text-muted);
   font-size: 0.85rem;
-  padding: 4px 6px;
+  padding: 0 6px;
   border-radius: 6px;
 }
 .cat-icon-btn:active { background: var(--bg-card-hover); }
@@ -528,13 +549,15 @@ nav.bottom-tabs {
 .cat-icon-btn:disabled { opacity: 0.3; }
 
 .cat-edit-input {
+  height: 36px;
+  box-sizing: border-box;
   flex: 1;
   min-width: 0;
   background: var(--bg-app);
   border: 0.5px solid var(--border-subtle);
   border-radius: 8px;
   color: var(--text-main);
-  padding: 6px 8px;
+  padding: 0 8px;
   font-size: 0.95rem;
 }
 
@@ -716,6 +739,16 @@ nav.bottom-tabs {
   color: var(--text-muted);
   margin: 8px 0 0;
 }
+
+/* ===== 背景圖片設定 ===== */
+.bg-preview-img {
+  width: 100%;
+  max-height: 130px;
+  object-fit: cover;
+  border-radius: 8px;
+  margin-bottom: 8px;
+  display: block;
+}
 </style>
 </head>
 
@@ -819,6 +852,16 @@ nav.bottom-tabs {
         <button class="segmented-btn" data-value="3">M</button>
         <button class="segmented-btn" data-value="4">L</button>
         <button class="segmented-btn" data-value="5">XL</button>
+      </div>
+    </div>
+
+    <div class="settings-row">
+      <p class="settings-row-label">背景圖片</p>
+      <div id="bgPreviewWrap"></div>
+      <input type="file" id="bgImageInput" accept="image/*" style="display:none">
+      <div class="gist-btn-row">
+        <button class="gist-btn secondary" id="chooseBgBtn">選擇圖片</button>
+        <button class="gist-btn danger" id="removeBgBtn" style="display:none">移除背景</button>
       </div>
     </div>
 
@@ -940,14 +983,26 @@ document.addEventListener("gesturestart", (e) => e.preventDefault());
 document.addEventListener("gesturechange", (e) => e.preventDefault());
 document.addEventListener("gestureend", (e) => e.preventDefault());
 
-// 雙擊放大的判斷:如果兩次 touchend 間隔在 300ms 內,視為雙擊,取消預設放大行為
+// 雙擊放大的判斷:兩次 touchend 要「時間夠近」且「位置夠近」才視為雙擊,
+// 否則快速連點不同按鈕(例如數字鍵盤)會被誤判成雙擊,導致點擊被吃掉、反應延遲
 let lastTouchEndTime = 0;
+let lastTouchX = 0;
+let lastTouchY = 0;
 document.addEventListener("touchend", (e) => {
   const now = Date.now();
-  if (now - lastTouchEndTime <= 300) {
+  const touch = e.changedTouches && e.changedTouches[0];
+  const dx = touch ? Math.abs(touch.clientX - lastTouchX) : Infinity;
+  const dy = touch ? Math.abs(touch.clientY - lastTouchY) : Infinity;
+  const isSameSpot = dx < 25 && dy < 25;
+
+  if (now - lastTouchEndTime <= 300 && isSameSpot) {
     e.preventDefault();
   }
   lastTouchEndTime = now;
+  if (touch) {
+    lastTouchX = touch.clientX;
+    lastTouchY = touch.clientY;
+  }
 }, { passive: false });
 
 /*
@@ -971,7 +1026,7 @@ function switchPage(target) {
   if (target === "list") renderRecordList();
   if (target === "stats") renderStats();
   if (target === "categories") renderCategoryManageList();
-  if (target === "settings") renderGistSyncUI();
+  if (target === "settings") { renderGistSyncUI(); renderBgSettingsUI(); }
 }
 
 document.getElementById("bottomTabs").addEventListener("click", (e) => {
@@ -2140,6 +2195,90 @@ function renderGistSyncUI() {
   document.getElementById("gistPullBtn").addEventListener("click", pullFromGist);
   document.getElementById("gistDisconnectBtn").addEventListener("click", disconnectGist);
 }
+
+/*
+  ===== 背景圖片(裝置層級設定,跟主題/文字大小一樣不分帳號)=====
+  照片先在本機用 canvas 壓縮縮圖(限制最長邊 1280px、JPEG 品質 0.75),
+  再轉成 base64 存進 localStorage,避免原始照片檔案太大超出瀏覽器儲存上限。
+*/
+const BG_IMAGE_KEY = "ledger_bg_image";
+const BG_MAX_DIMENSION = 1280;
+
+function applyBackgroundImage(dataUrl) {
+  document.documentElement.style.setProperty(
+    "--custom-bg-image",
+    dataUrl ? `url("${dataUrl}")` : "none"
+  );
+}
+
+function renderBgSettingsUI() {
+  const stored = localStorage.getItem(BG_IMAGE_KEY);
+  const preview = document.getElementById("bgPreviewWrap");
+  const removeBtn = document.getElementById("removeBgBtn");
+  if (!preview || !removeBtn) return; // appRoot 還沒渲染(尚未登入)時直接跳過
+
+  if (stored) {
+    preview.innerHTML = `<img src="${stored}" class="bg-preview-img" alt="目前背景圖片">`;
+    removeBtn.style.display = "";
+  } else {
+    preview.innerHTML = `<p class="gist-hint">尚未設定背景圖片,套用後會以 cover 模式自動填滿畫面</p>`;
+    removeBtn.style.display = "none";
+  }
+}
+
+function handleBgImageFile(file) {
+  const reader = new FileReader();
+  reader.onerror = () => showToast("讀取檔案失敗");
+  reader.onload = (e) => {
+    const img = new Image();
+    img.onerror = () => showToast("無法讀取這張圖片");
+    img.onload = () => {
+      let { width, height } = img;
+      if (width > height && width > BG_MAX_DIMENSION) {
+        height = Math.round(height * (BG_MAX_DIMENSION / width));
+        width = BG_MAX_DIMENSION;
+      } else if (height >= width && height > BG_MAX_DIMENSION) {
+        width = Math.round(width * (BG_MAX_DIMENSION / height));
+        height = BG_MAX_DIMENSION;
+      }
+
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      canvas.getContext("2d").drawImage(img, 0, 0, width, height);
+      const dataUrl = canvas.toDataURL("image/jpeg", 0.75);
+
+      try {
+        localStorage.setItem(BG_IMAGE_KEY, dataUrl);
+        applyBackgroundImage(dataUrl);
+        renderBgSettingsUI();
+        showToast("背景圖片已套用");
+      } catch (err) {
+        // localStorage 空間有限,壓縮後仍太大時會在這裡失敗,不讓整個 App 掛掉
+        showToast("圖片太大,無法儲存,請換一張較小的圖片再試一次");
+      }
+    };
+    img.src = e.target.result;
+  };
+  reader.readAsDataURL(file);
+}
+
+function removeBgImage() {
+  localStorage.removeItem(BG_IMAGE_KEY);
+  applyBackgroundImage(null);
+  renderBgSettingsUI();
+  showToast("已移除背景圖片");
+}
+
+document.getElementById("chooseBgBtn").addEventListener("click", () => {
+  document.getElementById("bgImageInput").click();
+});
+document.getElementById("bgImageInput").addEventListener("change", (e) => {
+  const file = e.target.files[0];
+  if (file) handleBgImageFile(file);
+  e.target.value = ""; // 清空,下次選同一張檔案也能觸發 change
+});
+document.getElementById("removeBgBtn").addEventListener("click", removeBgImage);
 </script>
 
 </body>
