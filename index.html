@@ -222,6 +222,21 @@ nav.bottom-tabs {
   opacity: 0.4;
 }
 
+/* ===== 備註輸入框 ===== */
+.note-textarea {
+  width: 100%;
+  min-height: 90px;
+  background: var(--bg-card);
+  border: 0.5px solid var(--border-subtle);
+  border-radius: 10px;
+  color: var(--text-main);
+  padding: 0.75rem 1rem;
+  font-size: 0.95rem;
+  font-family: inherit;
+  resize: none;
+  margin-bottom: 12px;
+}
+
 /* ===== 完成提示 Toast ===== */
 .toast {
   position: fixed;
@@ -318,6 +333,12 @@ nav.bottom-tabs {
 .record-row-content.swiped { transform: translateX(-72px); }
 .record-cat { font-size: 0.95rem; }
 .record-amount { font-size: 0.95rem; font-weight: 500; }
+.record-note {
+  /* 用 text-muted 變數而不是寫死顏色,深色/淺色模式都會自動對比足夠 */
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  margin-left: 4px;
+}
 .record-delete-btn {
   position: absolute;
   top: 0;
@@ -461,16 +482,18 @@ nav.bottom-tabs {
   border: 0.5px solid var(--border-subtle);
   border-radius: 8px;
   color: var(--text-main);
-  padding: 8px 10px;
+  padding: 10px 12px;
   font-size: 0.95rem;
+  line-height: 1.2;
 }
 .cat-add-row button {
   background: var(--accent);
   color: #fff;
-  border: none;
+  border: 0.5px solid transparent;
   border-radius: 8px;
-  padding: 0 1rem;
-  font-size: 0.9rem;
+  padding: 10px 16px;
+  font-size: 0.95rem;
+  line-height: 1.2;
 }
 
 /* ===== 橫向鎖定提示遮罩 ===== */
@@ -569,6 +592,7 @@ nav.bottom-tabs {
   font-size: 0.95rem;
 }
 .auth-submit-btn {
+  width: 100%;
   background: var(--accent);
   color: #fff;
   border: none;
@@ -795,6 +819,18 @@ nav.bottom-tabs {
   </div>
 </div>
 
+<!-- ===== 備註編輯彈出視窗(明細頁右滑觸發) ===== -->
+<div class="amount-modal" id="noteModal">
+  <div class="amount-sheet">
+    <div class="amount-sheet-header">
+      <span class="amount-sheet-cat">備註</span>
+      <button class="amount-sheet-close" id="noteModalClose" aria-label="關閉">✕</button>
+    </div>
+    <textarea id="noteInput" class="note-textarea" maxlength="100" placeholder="輸入備註,例如:朋友聚餐"></textarea>
+    <button class="keypad-btn confirm" id="noteSaveBtn" style="width:100%">儲存</button>
+  </div>
+</div>
+
 </div>
 <!-- appRoot 結束 -->
 
@@ -898,9 +934,11 @@ function makeCategoryId() {
 let categories = []; // 登入後才會實際載入該帳號的分類資料
 
 /*
-  ===== 快捷金額(之後從設定頁讀取,先寫死) =====
+  ===== 快捷加減金額(之後從設定頁讀取,先寫死) =====
+  這些不是「一鍵送出的整筆金額」,而是「每按一次就疊加的增量」,
+  方便湊出常見金額(例如按3次+$100再按1次+$50 = $350)。
 */
-const quickAmounts = [60, 100, 150];
+const quickAmounts = [5, 50, 100];
 
 /*
   ===== 本地資料庫(依帳號區隔,先用 localStorage,之後可以再加 Gist 同步) =====
@@ -999,11 +1037,17 @@ function renderQuickAmounts() {
   quickAmounts.forEach(amount => {
     const btn = document.createElement("button");
     btn.className = "quick-amount-btn";
-    btn.textContent = `$${amount}`;
-    // 快捷金額:點下去立刻送出,不需要再按確認鍵
-    btn.addEventListener("click", () => submitRecord(amount));
+    btn.textContent = `+$${amount}`;
+    // 每按一次疊加金額,不會關閉輸入視窗,方便連續點擊湊出金額
+    btn.addEventListener("click", () => incrementAmount(amount));
     quickAmountsEl.appendChild(btn);
   });
+}
+
+function incrementAmount(amount) {
+  const current = parseInt(inputBuffer || "0", 10);
+  inputBuffer = String(current + amount);
+  updateAmountDisplay();
 }
 
 function submitRecord(amount) {
@@ -1154,6 +1198,50 @@ function deleteRecord(id) {
   showToast("已刪除該筆紀錄");
 }
 
+// 備註是使用者輸入的文字,插入 innerHTML 前一定要跳脫,避免顯示跑版或潛在風險
+function escapeHtml(str) {
+  const div = document.createElement("div");
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+/* ===== 備註編輯彈出視窗(明細頁右滑觸發) ===== */
+const noteModal = document.getElementById("noteModal");
+const noteInput = document.getElementById("noteInput");
+let editingNoteRecordId = null;
+
+function openNoteModal(id) {
+  const record = loadRecords().find(r => r.id === id);
+  if (!record) return;
+  editingNoteRecordId = id;
+  noteInput.value = record.note || "";
+  noteModal.classList.add("open");
+  noteInput.focus();
+}
+
+function closeNoteModal() {
+  noteModal.classList.remove("open");
+  editingNoteRecordId = null;
+}
+
+function saveNote() {
+  if (!editingNoteRecordId) return closeNoteModal();
+  const records = loadRecords();
+  const idx = records.findIndex(r => r.id === editingNoteRecordId);
+  if (idx === -1) return closeNoteModal();
+  records[idx].note = noteInput.value.trim();
+  localStorage.setItem(recordsKey(), JSON.stringify(records));
+  closeNoteModal();
+  renderRecordList();
+  showToast("備註已更新");
+}
+
+document.getElementById("noteModalClose").addEventListener("click", closeNoteModal);
+document.getElementById("noteSaveBtn").addEventListener("click", saveNote);
+noteModal.addEventListener("click", (e) => {
+  if (e.target === noteModal) closeNoteModal();
+});
+
 function renderCategoryFilterTag() {
   const el = document.getElementById("categoryFilterTag");
   const chipsEl = document.getElementById("filterChips");
@@ -1210,9 +1298,12 @@ function renderRecordList() {
     group.records.forEach(r => {
       const row = document.createElement("div");
       row.className = "record-row";
+      const noteHtml = r.note
+        ? `<span class="record-note">· ${escapeHtml(r.note)}</span>`
+        : "";
       row.innerHTML = `
         <div class="record-row-content">
-          <span class="record-cat">${catNameOf(r.categoryId)}</span>
+          <span class="record-cat">${catNameOf(r.categoryId)}${noteHtml}</span>
           <span class="record-amount">$${r.amount}</span>
         </div>
         <button class="record-delete-btn">刪除</button>
@@ -1221,7 +1312,7 @@ function renderRecordList() {
       const content = row.querySelector(".record-row-content");
       const deleteBtn = row.querySelector(".record-delete-btn");
 
-      // 左滑顯示刪除鍵,右滑或再次點擊收回
+      // 左滑顯示刪除鍵;右滑在收合狀態下開啟備註編輯,已展開時右滑則是收回
       let startX = 0;
       let dragging = false;
 
@@ -1236,7 +1327,11 @@ function renderRecordList() {
         if (diff < -30) {
           content.classList.add("swiped");
         } else if (diff > 30) {
-          content.classList.remove("swiped");
+          if (content.classList.contains("swiped")) {
+            content.classList.remove("swiped");
+          } else {
+            openNoteModal(r.id);
+          }
         }
       });
       // 點擊已滑開的列,先收回而不是誤觸其他動作
