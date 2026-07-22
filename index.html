@@ -214,6 +214,40 @@ nav.bottom-tabs {
   padding: 4px 8px;
 }
 
+/* ===== 日期選擇(補記過去帳目用)===== */
+.date-chip-row { margin-bottom: 8px; }
+.date-chip {
+  background: var(--bg-app);
+  border: 0.5px solid var(--border-subtle);
+  border-radius: 999px;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  padding: 4px 12px;
+}
+.date-options-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.date-option-btn {
+  background: var(--bg-app);
+  border: none;
+  border-radius: 999px;
+  color: var(--text-main);
+  font-size: 0.8rem;
+  padding: 5px 12px;
+}
+.date-option-btn:active { background: var(--bg-card-hover); }
+.date-custom-input {
+  background: var(--bg-app);
+  border: 0.5px solid var(--border-subtle);
+  border-radius: 999px;
+  color: var(--text-main);
+  font-size: 0.8rem;
+  padding: 4px 10px;
+}
+
 .amount-display {
   text-align: center;
   font-size: 2.4rem;
@@ -987,6 +1021,17 @@ nav.bottom-tabs {
       <button class="amount-sheet-close" id="amountSheetClose" aria-label="關閉">✕</button>
     </div>
 
+    <!-- 日期選擇:預設「今天」,平常不用點,補記過去帳目時才點開選日期 -->
+    <div class="date-chip-row">
+      <button class="date-chip" id="dateChipBtn">今天</button>
+    </div>
+    <div class="date-options-row" id="dateOptionsRow" style="display:none">
+      <button class="date-option-btn" data-offset="0">今天</button>
+      <button class="date-option-btn" data-offset="1">昨天</button>
+      <button class="date-option-btn" data-offset="2">前天</button>
+      <input type="date" id="customDateInput" class="date-custom-input">
+    </div>
+
     <div class="amount-display placeholder" id="amountDisplay">輸入金額</div>
 
     <!-- 快捷金額:點下去直接送出,不用再按確認 -->
@@ -1227,17 +1272,34 @@ function saveRecord(record) {
 }
 
 function makeRecordId(date) {
-  const datePart = date.toISOString().slice(0,10).replace(/-/g,"");
+  const datePart = toLocalDateString(date).replace(/-/g, "");
   const randPart = Math.random().toString(36).slice(2,6);
   return `${datePart}-${randPart}`;
 }
 
-function addRecord(amount, categoryId) {
+// 用本地時區組出 YYYY-MM-DD,不要用 toISOString(它會先轉成 UTC,
+// 在台灣這種 UTC+8 時區,凌晨時段用 toISOString 算出來的日期可能會早一天,
+// 補記過去帳目時如果日期算錯就完全失去補記的意義)
+function toLocalDateString(date) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+function addRecord(amount, categoryId, customDate) {
   const now = new Date();
+  let effectiveDate = now;
+  if (customDate) {
+    // 只採用使用者選的年/月/日,時分秒仍用目前的即時時間,
+    // 這樣同一天補記好幾筆時,彼此還是能依時間先後排序
+    effectiveDate = new Date(customDate);
+    effectiveDate.setHours(now.getHours(), now.getMinutes(), now.getSeconds(), now.getMilliseconds());
+  }
   const record = {
-    id: makeRecordId(now),
-    ts: Math.floor(now.getTime() / 1000),
-    date: now.toISOString().slice(0,10),
+    id: makeRecordId(effectiveDate),
+    ts: Math.floor(effectiveDate.getTime() / 1000),
+    date: toLocalDateString(effectiveDate),
     amount: amount,
     categoryId: categoryId,
     note: ""
@@ -1273,16 +1335,37 @@ const confirmBtn = document.getElementById("confirmBtn");
 
 let currentCategory = null; // 目前正在記帳的分類
 let inputBuffer = "";        // 使用者正在輸入的數字字串
+let selectedRecordDate = null; // null = 今天;有值時是補記用的日期(Date物件)
 
 function findCategory(id) {
   return categories.find(c => c.id === id);
 }
 
+function updateDateChipLabel() {
+  const chip = document.getElementById("dateChipBtn");
+  if (!selectedRecordDate) {
+    chip.textContent = "今天";
+    return;
+  }
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const sel = new Date(selectedRecordDate);
+  sel.setHours(0, 0, 0, 0);
+  const diffDays = Math.round((today - sel) / 86400000);
+  if (diffDays === 0) chip.textContent = "今天";
+  else if (diffDays === 1) chip.textContent = "昨天";
+  else if (diffDays === 2) chip.textContent = "前天";
+  else chip.textContent = `${sel.getMonth() + 1}/${sel.getDate()}`;
+}
+
 function openAmountModal(categoryId) {
   currentCategory = findCategory(categoryId);
   inputBuffer = "";
+  selectedRecordDate = null; // 每次重新點開分類,預設都回到「今天」,避免不小心延用上一筆的補記日期
   amountSheetCat.textContent = currentCategory.name;
   updateAmountDisplay();
+  updateDateChipLabel();
+  document.getElementById("dateOptionsRow").style.display = "none";
   amountModal.classList.add("open");
 }
 
@@ -1290,6 +1373,7 @@ function closeAmountModal() {
   amountModal.classList.remove("open");
   currentCategory = null;
   inputBuffer = "";
+  selectedRecordDate = null;
 }
 
 function updateAmountDisplay() {
@@ -1324,10 +1408,36 @@ function incrementAmount(amount) {
 
 function submitRecord(amount) {
   if (!currentCategory) return;
-  addRecord(amount, currentCategory.id);
-  showToast(`已記錄 ${currentCategory.name} $${amount}`);
+  addRecord(amount, currentCategory.id, selectedRecordDate);
+  const dateNote = selectedRecordDate ? `(${document.getElementById("dateChipBtn").textContent})` : "";
+  showToast(`已記錄 ${currentCategory.name} $${amount}${dateNote}`);
   closeAmountModal();
 }
+
+/* 日期選擇:點標籤展開/收合選項,選today/昨天/前天或自訂日期 */
+document.getElementById("dateChipBtn").addEventListener("click", () => {
+  const row = document.getElementById("dateOptionsRow");
+  row.style.display = row.style.display === "none" ? "flex" : "none";
+});
+
+document.getElementById("dateOptionsRow").addEventListener("click", (e) => {
+  const btn = e.target.closest(".date-option-btn");
+  if (!btn) return;
+  const offset = parseInt(btn.dataset.offset, 10);
+  const d = new Date();
+  d.setDate(d.getDate() - offset);
+  selectedRecordDate = offset === 0 ? null : d;
+  updateDateChipLabel();
+  document.getElementById("dateOptionsRow").style.display = "none";
+});
+
+document.getElementById("customDateInput").addEventListener("change", (e) => {
+  if (!e.target.value) return;
+  const [y, m, d] = e.target.value.split("-").map(Number);
+  selectedRecordDate = new Date(y, m - 1, d);
+  updateDateChipLabel();
+  document.getElementById("dateOptionsRow").style.display = "none";
+});
 
 /* 數字鍵盤點擊處理 */
 document.getElementById("keypad").addEventListener("click", (e) => {
