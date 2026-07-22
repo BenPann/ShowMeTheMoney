@@ -102,6 +102,15 @@ section[data-page].active { display: block; }
   padding: 1.2rem 0.5rem;
   font-size: 1rem;
   font-weight: 500;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+.category-btn .category-icon {
+  font-size: 1.6rem;
+  line-height: 1;
 }
 .category-btn:hover, .category-btn:active {
   background: var(--bg-card-hover);
@@ -236,6 +245,37 @@ nav.bottom-tabs {
   resize: none;
   margin-bottom: 12px;
 }
+
+/* ===== 分類圖示選擇 ===== */
+.cat-icon-picker-btn {
+  flex: none;
+  width: 42px;
+  height: 42px;
+  box-sizing: border-box;
+  background: var(--bg-card);
+  border: 0.5px solid var(--border-subtle);
+  border-radius: 8px;
+  font-size: 1.2rem;
+  color: var(--text-main);
+  padding: 0;
+}
+.icon-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 8px;
+  max-height: 280px;
+  overflow-y: auto;
+  margin-bottom: 4px;
+}
+.icon-picker-btn {
+  background: var(--bg-card);
+  border: none;
+  border-radius: 10px;
+  font-size: 1.4rem;
+  padding: 10px 0;
+}
+.icon-picker-btn:active { background: var(--bg-card-hover); }
+.cat-icon { margin-right: 4px; }
 
 /* ===== 完成提示 Toast ===== */
 .toast {
@@ -473,27 +513,31 @@ nav.bottom-tabs {
 
 .cat-add-row {
   display: flex;
+  align-items: stretch;
   gap: 8px;
   margin-top: 0.5rem;
 }
+.cat-add-row input,
+.cat-submit-btn {
+  height: 42px;
+  box-sizing: border-box;
+  font-size: 0.95rem;
+  border-radius: 8px;
+}
 .cat-add-row input {
   flex: 1;
+  min-width: 0;
   background: var(--bg-card);
   border: 0.5px solid var(--border-subtle);
-  border-radius: 8px;
   color: var(--text-main);
-  padding: 10px 12px;
-  font-size: 0.95rem;
-  line-height: 1.2;
+  padding: 0 12px;
 }
-.cat-add-row button {
+.cat-submit-btn {
   background: var(--accent);
   color: #fff;
   border: 0.5px solid transparent;
-  border-radius: 8px;
-  padding: 10px 16px;
-  font-size: 0.95rem;
-  line-height: 1.2;
+  padding: 0 16px;
+  flex: none;
 }
 
 /* ===== 橫向鎖定提示遮罩 ===== */
@@ -722,25 +766,15 @@ nav.bottom-tabs {
     <p class="page-title">分類管理</p>
     <div id="categoryManageList"></div>
     <div class="cat-add-row">
+      <button type="button" class="cat-icon-picker-btn" id="newCategoryIconBtn">➕</button>
       <input type="text" id="newCategoryInput" placeholder="新分類名稱" maxlength="10">
-      <button id="addCategoryBtn">新增</button>
+      <button id="addCategoryBtn" class="cat-submit-btn">新增</button>
     </div>
   </section>
 
   <!-- ===== 分頁五:設定 ===== -->
   <section data-page="settings">
     <p class="page-title">設定</p>
-
-    <div class="settings-row">
-      <p class="settings-row-label">目前登入帳號</p>
-      <p style="margin:0 0 10px" id="currentAccountLabel"></p>
-      <button class="auth-submit-btn" id="logoutBtn" style="background:#d9463d">登出</button>
-    </div>
-
-    <div class="settings-row">
-      <p class="settings-row-label">雲端同步(GitHub Gist)</p>
-      <div id="gistSyncContainer"></div>
-    </div>
 
     <div class="settings-row">
       <p class="settings-row-label">外觀</p>
@@ -758,6 +792,19 @@ nav.bottom-tabs {
         <button class="segmented-btn" data-value="3">M</button>
         <button class="segmented-btn" data-value="4">L</button>
         <button class="segmented-btn" data-value="5">XL</button>
+      </div>
+    </div>
+
+    <div class="settings-row">
+      <p class="settings-row-label">雲端同步(GitHub Gist)</p>
+      <div id="gistSyncContainer"></div>
+    </div>
+
+    <div class="settings-row">
+      <p class="settings-row-label">目前登入帳號</p>
+      <p style="margin:0 0 10px" id="currentAccountLabel"></p>
+      <div class="gist-btn-row">
+        <button class="gist-btn danger" id="logoutBtn">登出</button>
       </div>
     </div>
   </section>
@@ -828,6 +875,17 @@ nav.bottom-tabs {
     </div>
     <textarea id="noteInput" class="note-textarea" maxlength="100" placeholder="輸入備註,例如:朋友聚餐"></textarea>
     <button class="keypad-btn confirm" id="noteSaveBtn" style="width:100%">儲存</button>
+  </div>
+</div>
+
+<!-- ===== 分類圖示選擇彈出視窗 ===== -->
+<div class="amount-modal" id="iconPickerModal">
+  <div class="amount-sheet">
+    <div class="amount-sheet-header">
+      <span class="amount-sheet-cat">選擇圖示</span>
+      <button class="amount-sheet-close" id="iconPickerClose" aria-label="關閉">✕</button>
+    </div>
+    <div class="icon-picker-grid" id="iconPickerGrid"></div>
   </div>
 </div>
 
@@ -911,9 +969,21 @@ function recordsKey() { return `ledger_records::${currentEmail}`; }
   記帳輸入頁的九宮格、統計頁、明細頁全部讀取同一份資料,不會各自維護一份。
 */
 const DEFAULT_CATEGORIES = [
-  { id: "food", name: "飲食" },
-  { id: "transport", name: "交通" },
-  { id: "drink", name: "飲料" }
+  { id: "food", name: "飲食", icon: "🍚" },
+  { id: "transport", name: "交通", icon: "🚌" },
+  { id: "drink", name: "飲料", icon: "🧋" }
+];
+
+/*
+  ===== 分類圖示選項 =====
+  用 Emoji 而不是外部圖示字型:不用額外載入 CDN 資源,離線也能正常顯示,
+  維持這個 App「純 HTML/CSS/JS、輕量」的原則。
+*/
+const ICON_OPTIONS = [
+  "🍚","🍔","🍜","🍕","☕","🧋","🍺","🍎",
+  "🚌","🚗","🚕","🚄","✈️","🅿️",
+  "🏠","💡","📱","💊","🎮","🎬","📚","🎁",
+  "👕","✂️","🐾","💼","🛒","💰"
 ];
 
 function loadCategories() {
@@ -1095,7 +1165,9 @@ function renderCategoryGrid() {
   categories.forEach(cat => {
     const btn = document.createElement("button");
     btn.className = "category-btn";
-    btn.textContent = cat.name;
+    btn.innerHTML = cat.icon
+      ? `<span class="category-icon">${cat.icon}</span><span>${cat.name}</span>`
+      : `<span>${cat.name}</span>`;
 
     let pressTimer = null;
     let longPressFired = false;
@@ -1454,6 +1526,9 @@ document.getElementById("nextMonthBtn").addEventListener("click", () => {
   並重新渲染記帳輸入頁的九宮格,確保兩邊永遠是同一份資料。
 */
 let editingCategoryId = null; // 目前正在編輯名稱的分類 id,null 代表沒有在編輯
+let editingIconValue = "";    // 編輯中的分類,目前選擇的圖示
+let newCategoryIcon = "";     // 新增分類表單,目前選擇的圖示
+let iconPickerTarget = null;  // 圖示選擇視窗是給 "new"(新增)還是 "edit"(編輯中的列)用
 
 function persistCategoriesAndSync() {
   saveCategories(categories);
@@ -1471,11 +1546,14 @@ function moveCategory(id, direction) {
 
 function startEditCategory(id) {
   editingCategoryId = id;
+  const cat = findCategory(id);
+  editingIconValue = (cat && cat.icon) || "";
   renderCategoryManageList();
 }
 
 function cancelEditCategory() {
   editingCategoryId = null;
+  editingIconValue = "";
   renderCategoryManageList();
 }
 
@@ -1487,6 +1565,7 @@ function saveEditCategory(id, newName) {
   }
   const cat = findCategory(id);
   cat.name = trimmed;
+  cat.icon = editingIconValue;
   editingCategoryId = null;
   persistCategoriesAndSync();
   showToast("分類已更新");
@@ -1509,9 +1588,11 @@ function addCategory(name) {
     showToast("請輸入分類名稱");
     return;
   }
-  categories.push({ id: makeCategoryId(), name: trimmed });
+  categories.push({ id: makeCategoryId(), name: trimmed, icon: newCategoryIcon });
   persistCategoriesAndSync();
   document.getElementById("newCategoryInput").value = "";
+  newCategoryIcon = "";
+  document.getElementById("newCategoryIconBtn").textContent = "➕";
   showToast("已新增分類");
 }
 
@@ -1524,8 +1605,9 @@ function renderCategoryManageList() {
     row.className = "cat-row";
 
     if (editingCategoryId === cat.id) {
-      // 編輯狀態:名稱換成輸入框,操作鍵換成儲存/取消
+      // 編輯狀態:名稱換成輸入框,多一顆圖示按鈕,操作鍵換成儲存/取消
       row.innerHTML = `
+        <button type="button" class="cat-icon-picker-btn" id="editIconBtn">${editingIconValue || "➕"}</button>
         <input type="text" class="cat-edit-input" value="${cat.name}" maxlength="10">
         <div class="cat-row-actions">
           <button class="cat-icon-btn" data-action="save">儲存</button>
@@ -1533,6 +1615,7 @@ function renderCategoryManageList() {
         </div>
       `;
       const input = row.querySelector(".cat-edit-input");
+      row.querySelector("#editIconBtn").addEventListener("click", () => openIconPicker("edit"));
       row.querySelector('[data-action="save"]').addEventListener("click", () => saveEditCategory(cat.id, input.value));
       row.querySelector('[data-action="cancel"]').addEventListener("click", cancelEditCategory);
       // Enter 鍵直接儲存,減少一次點擊
@@ -1541,7 +1624,7 @@ function renderCategoryManageList() {
       });
     } else {
       row.innerHTML = `
-        <span class="cat-name">${cat.name}</span>
+        <span class="cat-name">${cat.icon ? `<span class="cat-icon">${cat.icon}</span>` : ""}${cat.name}</span>
         <div class="cat-row-actions">
           <button class="cat-icon-btn" data-action="up" ${index === 0 ? "disabled" : ""}>▲</button>
           <button class="cat-icon-btn" data-action="down" ${index === categories.length - 1 ? "disabled" : ""}>▼</button>
@@ -1564,6 +1647,55 @@ document.getElementById("addCategoryBtn").addEventListener("click", () => {
 });
 document.getElementById("newCategoryInput").addEventListener("keydown", (e) => {
   if (e.key === "Enter") addCategory(e.target.value);
+});
+document.getElementById("newCategoryIconBtn").addEventListener("click", () => openIconPicker("new"));
+
+/*
+  ===== 分類圖示選擇彈出視窗 =====
+*/
+function openIconPicker(target) {
+  iconPickerTarget = target;
+  const grid = document.getElementById("iconPickerGrid");
+  grid.innerHTML = "";
+
+  const noneBtn = document.createElement("button");
+  noneBtn.type = "button";
+  noneBtn.className = "icon-picker-btn";
+  noneBtn.textContent = "—";
+  noneBtn.addEventListener("click", () => selectIcon(""));
+  grid.appendChild(noneBtn);
+
+  ICON_OPTIONS.forEach(icon => {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "icon-picker-btn";
+    btn.textContent = icon;
+    btn.addEventListener("click", () => selectIcon(icon));
+    grid.appendChild(btn);
+  });
+
+  document.getElementById("iconPickerModal").classList.add("open");
+}
+
+function closeIconPicker() {
+  document.getElementById("iconPickerModal").classList.remove("open");
+  iconPickerTarget = null;
+}
+
+function selectIcon(icon) {
+  if (iconPickerTarget === "new") {
+    newCategoryIcon = icon;
+    document.getElementById("newCategoryIconBtn").textContent = icon || "➕";
+  } else if (iconPickerTarget === "edit") {
+    editingIconValue = icon;
+    renderCategoryManageList(); // 重新渲染,讓編輯列上的圖示按鈕顯示新選擇
+  }
+  closeIconPicker();
+}
+
+document.getElementById("iconPickerClose").addEventListener("click", closeIconPicker);
+document.getElementById("iconPickerModal").addEventListener("click", (e) => {
+  if (e.target.id === "iconPickerModal") closeIconPicker();
 });
 
 /*
