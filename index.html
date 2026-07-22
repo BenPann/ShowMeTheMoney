@@ -10,7 +10,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="記帳">
 
-<!-- 提早套用已儲存的主題/文字大小/背景圖片設定,避免每次開啟先閃一下預設樣式再切換 -->
+<!-- 提早套用已儲存的主題/文字大小/卡片樣式/背景圖片設定,避免每次開啟先閃一下預設樣式再切換 -->
 <script>
 (function () {
   try {
@@ -21,9 +21,24 @@
     var scale = localStorage.getItem("ledger_font_scale") || "3";
     document.documentElement.style.fontSize = (steps[scale] || 100) + "%";
 
-    var bgImage = localStorage.getItem("ledger_bg_image");
-    if (bgImage) {
-      document.documentElement.style.setProperty("--custom-bg-image", 'url("' + bgImage + '")');
+    // 卡片透明度 / 玻璃樣式,跟主題一樣是裝置層級設定,不分帳號
+    var glass = localStorage.getItem("ledger_card_glass") || "auto";
+    var opacity = parseInt(localStorage.getItem("ledger_card_opacity") || "100", 10);
+    var alpha = opacity / 100;
+    var baseRgb = glass === "white" ? "255,255,255" : glass === "black" ? "0,0,0" : (theme === "dark" ? "44,44,46" : "255,255,255");
+    document.documentElement.style.setProperty("--card-surface", "rgba(" + baseRgb + "," + alpha + ")");
+    document.documentElement.style.setProperty("--card-blur", opacity < 100 ? "blur(14px)" : "none");
+
+    // 背景圖片依帳號區隔,先確認目前是否有「還沒過期」的登入 session,再讀對應帳號的背景圖
+    var sessionRaw = localStorage.getItem("ledger_session");
+    if (sessionRaw) {
+      var session = JSON.parse(sessionRaw);
+      if (session && session.expiresAt > Date.now()) {
+        var bgImage = localStorage.getItem("ledger_bg_image::" + session.email);
+        if (bgImage) {
+          document.documentElement.style.setProperty("--custom-bg-image", 'url("' + bgImage + '")');
+        }
+      }
     }
   } catch (e) { /* localStorage 不可用時,直接使用預設樣式即可 */ }
 })();
@@ -42,6 +57,8 @@
   --text-main: #f2f2f2;
   --text-muted: #8e8e93;
   --accent: #4a90e2;
+  --card-surface: var(--bg-card);
+  --card-blur: none;
 }
 
 :root[data-theme="light"] {
@@ -52,6 +69,8 @@
   --text-main: #1c1c1e;
   --text-muted: #6e6e73;
   --accent: #3d7fd9;
+  --card-surface: var(--bg-card);
+  --card-blur: none;
 }
 
 * { box-sizing: border-box; }
@@ -104,7 +123,9 @@ section[data-page].active { display: block; }
   gap: 10px;
 }
 .category-btn {
-  background: var(--bg-card);
+  background: var(--card-surface);
+  backdrop-filter: var(--card-blur);
+  -webkit-backdrop-filter: var(--card-blur);
   border: none;
   border-radius: 10px;
   color: var(--text-main);
@@ -131,7 +152,9 @@ nav.bottom-tabs {
   bottom: 0;
   left: 0;
   right: 0;
-  background: var(--bg-card);
+  background: var(--card-surface);
+  backdrop-filter: var(--card-blur);
+  -webkit-backdrop-filter: var(--card-blur);
   border-top: 0.5px solid var(--border-subtle);
   display: grid;
   grid-template-columns: repeat(5, 1fr);
@@ -207,7 +230,9 @@ nav.bottom-tabs {
   margin-bottom: 12px;
 }
 .quick-amount-btn {
-  background: var(--bg-card);
+  background: var(--card-surface);
+  backdrop-filter: var(--card-blur);
+  -webkit-backdrop-filter: var(--card-blur);
   border: none;
   border-radius: 10px;
   color: var(--text-main);
@@ -349,7 +374,9 @@ nav.bottom-tabs {
 }
 .filter-chip {
   flex: none;
-  background: var(--bg-card);
+  background: var(--card-surface);
+  backdrop-filter: var(--card-blur);
+  -webkit-backdrop-filter: var(--card-blur);
   border: none;
   border-radius: 999px;
   color: var(--text-muted);
@@ -366,7 +393,9 @@ nav.bottom-tabs {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  background: var(--bg-card);
+  background: var(--card-surface);
+  backdrop-filter: var(--card-blur);
+  -webkit-backdrop-filter: var(--card-blur);
   color: var(--text-main);
   border-radius: 999px;
   padding: 5px 10px 5px 14px;
@@ -403,7 +432,9 @@ nav.bottom-tabs {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  background: var(--bg-card);
+  background: var(--card-surface);
+  backdrop-filter: var(--card-blur);
+  -webkit-backdrop-filter: var(--card-blur);
   padding: 0.75rem 1rem;
   transform: translateX(0);
   transition: transform 0.15s ease;
@@ -464,7 +495,9 @@ nav.bottom-tabs {
 
 /* ===== 統計頁:本月總支出卡片 ===== */
 .stats-total-card {
-  background: var(--bg-card);
+  background: var(--card-surface);
+  backdrop-filter: var(--card-blur);
+  -webkit-backdrop-filter: var(--card-blur);
   border-radius: 12px;
   padding: 1rem;
   text-align: center;
@@ -493,7 +526,9 @@ nav.bottom-tabs {
   margin-bottom: 5px;
 }
 .stat-bar-track {
-  background: var(--bg-card);
+  background: var(--card-surface);
+  backdrop-filter: var(--card-blur);
+  -webkit-backdrop-filter: var(--card-blur);
   border-radius: 6px;
   height: 10px;
   overflow: hidden;
@@ -510,7 +545,9 @@ nav.bottom-tabs {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  background: var(--bg-card);
+  background: var(--card-surface);
+  backdrop-filter: var(--card-blur);
+  -webkit-backdrop-filter: var(--card-blur);
   border-radius: 10px;
   padding: 0.6rem 0.75rem;
   margin-bottom: 6px;
@@ -618,7 +655,9 @@ nav.bottom-tabs {
 
 /* ===== 設定頁 ===== */
 .settings-row {
-  background: var(--bg-card);
+  background: var(--card-surface);
+  backdrop-filter: var(--card-blur);
+  -webkit-backdrop-filter: var(--card-blur);
   border-radius: 10px;
   padding: 0.75rem 1rem;
   margin-bottom: 10px;
@@ -842,6 +881,27 @@ nav.bottom-tabs {
         <button class="segmented-btn" data-value="dark">深色</button>
         <button class="segmented-btn" data-value="light">淺色</button>
       </div>
+    </div>
+
+    <div class="settings-row">
+      <p class="settings-row-label">卡片透明度</p>
+      <div class="segmented" id="cardOpacitySegmented">
+        <button class="segmented-btn" data-value="20">20%</button>
+        <button class="segmented-btn" data-value="40">40%</button>
+        <button class="segmented-btn" data-value="60">60%</button>
+        <button class="segmented-btn" data-value="80">80%</button>
+        <button class="segmented-btn" data-value="100">100%</button>
+      </div>
+    </div>
+
+    <div class="settings-row">
+      <p class="settings-row-label">卡片樣式</p>
+      <div class="segmented" id="cardGlassSegmented">
+        <button class="segmented-btn" data-value="auto">跟隨主題</button>
+        <button class="segmented-btn" data-value="white">白玻璃</button>
+        <button class="segmented-btn" data-value="black">黑玻璃</button>
+      </div>
+      <p class="gist-hint" style="margin-top:8px">透明度低於 100% 時,卡片會自動加上毛玻璃模糊效果,方便看清楚背後的背景圖片</p>
     </div>
 
     <div class="settings-row">
@@ -1840,6 +1900,7 @@ function applyTheme(value) {
   document.querySelectorAll("#themeSegmented .segmented-btn").forEach(btn =>
     btn.classList.toggle("active", btn.dataset.value === value)
   );
+  applyCardStyle(); // 「跟隨主題」的卡片樣式要跟著重新計算
 }
 
 function applyFontScale(value) {
@@ -1860,9 +1921,62 @@ document.getElementById("fontScaleSegmented").addEventListener("click", (e) => {
   if (btn) applyFontScale(btn.dataset.value);
 });
 
+/*
+  ===== 設定頁:卡片透明度 / 玻璃樣式 =====
+  「跟隨主題」模式下,卡片底色會用目前深色/淺色主題本來的卡片顏色;
+  選「白玻璃」「黑玻璃」則不管目前是深色或淺色模式,強制套用白色或黑色的半透明底色。
+  透明度低於 100% 時額外加上 backdrop-filter 模糊,做出真正的毛玻璃質感。
+*/
+const CARD_OPACITY_KEY = "ledger_card_opacity";
+const CARD_GLASS_KEY = "ledger_card_glass";
+
+function computeCardSurfaceRgb(glass) {
+  if (glass === "white") return "255,255,255";
+  if (glass === "black") return "0,0,0";
+  const isDark = document.documentElement.getAttribute("data-theme") === "dark";
+  return isDark ? "44,44,46" : "255,255,255";
+}
+
+function applyCardStyle() {
+  const glass = localStorage.getItem(CARD_GLASS_KEY) || "auto";
+  const opacity = parseInt(localStorage.getItem(CARD_OPACITY_KEY) || "100", 10);
+  const alpha = opacity / 100;
+  const rgb = computeCardSurfaceRgb(glass);
+
+  document.documentElement.style.setProperty("--card-surface", `rgba(${rgb},${alpha})`);
+  document.documentElement.style.setProperty("--card-blur", opacity < 100 ? "blur(14px)" : "none");
+
+  document.querySelectorAll("#cardGlassSegmented .segmented-btn").forEach(btn =>
+    btn.classList.toggle("active", btn.dataset.value === glass)
+  );
+  document.querySelectorAll("#cardOpacitySegmented .segmented-btn").forEach(btn =>
+    btn.classList.toggle("active", btn.dataset.value === String(opacity))
+  );
+}
+
+function setCardGlass(value) {
+  localStorage.setItem(CARD_GLASS_KEY, value);
+  applyCardStyle();
+}
+
+function setCardOpacity(value) {
+  localStorage.setItem(CARD_OPACITY_KEY, value);
+  applyCardStyle();
+}
+
+document.getElementById("cardGlassSegmented").addEventListener("click", (e) => {
+  const btn = e.target.closest(".segmented-btn");
+  if (btn) setCardGlass(btn.dataset.value);
+});
+document.getElementById("cardOpacitySegmented").addEventListener("click", (e) => {
+  const btn = e.target.closest(".segmented-btn");
+  if (btn) setCardOpacity(btn.dataset.value);
+});
+
 // 開啟頁面時,讓設定頁的按鈕反映目前實際生效中的設定(跟 <head> 裡讀到的值一致)
 applyTheme(localStorage.getItem("ledger_theme") || "dark");
 applyFontScale(localStorage.getItem("ledger_font_scale") || "3");
+applyCardStyle();
 
 /*
   ===== 帳號系統:註冊 / 登入 / 登出 / 10天內免登入 =====
@@ -1927,6 +2041,9 @@ function enterApp(email) {
   document.getElementById("appRoot").style.display = "";
   document.getElementById("currentAccountLabel").textContent = email;
 
+  // 背景圖片依帳號區隔,登入後套用「這個帳號」自己設定的背景(沒設定就沒有)
+  applyBackgroundImage(localStorage.getItem(bgImageKey()));
+
   renderCategoryGrid();
   renderQuickAmounts();
   switchPage("input"); // 每次進入都回到記帳輸入頁,不記住上次停留的分頁
@@ -1934,6 +2051,7 @@ function enterApp(email) {
 
 function showAuthScreen() {
   currentEmail = null;
+  applyBackgroundImage(null); // 避免登出後,登入畫面還殘留上一個帳號的背景圖
   document.getElementById("appRoot").style.display = "none";
   document.getElementById("authScreen").style.display = "flex";
   document.getElementById("loginEmail").value = "";
@@ -2201,7 +2319,8 @@ function renderGistSyncUI() {
   照片先在本機用 canvas 壓縮縮圖(限制最長邊 1280px、JPEG 品質 0.75),
   再轉成 base64 存進 localStorage,避免原始照片檔案太大超出瀏覽器儲存上限。
 */
-const BG_IMAGE_KEY = "ledger_bg_image";
+const BG_IMAGE_KEY_PREFIX = "ledger_bg_image";
+function bgImageKey() { return `${BG_IMAGE_KEY_PREFIX}::${currentEmail}`; }
 const BG_MAX_DIMENSION = 1280;
 
 function applyBackgroundImage(dataUrl) {
@@ -2212,7 +2331,7 @@ function applyBackgroundImage(dataUrl) {
 }
 
 function renderBgSettingsUI() {
-  const stored = localStorage.getItem(BG_IMAGE_KEY);
+  const stored = localStorage.getItem(bgImageKey());
   const preview = document.getElementById("bgPreviewWrap");
   const removeBtn = document.getElementById("removeBgBtn");
   if (!preview || !removeBtn) return; // appRoot 還沒渲染(尚未登入)時直接跳過
@@ -2249,7 +2368,7 @@ function handleBgImageFile(file) {
       const dataUrl = canvas.toDataURL("image/jpeg", 0.75);
 
       try {
-        localStorage.setItem(BG_IMAGE_KEY, dataUrl);
+        localStorage.setItem(bgImageKey(), dataUrl);
         applyBackgroundImage(dataUrl);
         renderBgSettingsUI();
         showToast("背景圖片已套用");
@@ -2264,7 +2383,7 @@ function handleBgImageFile(file) {
 }
 
 function removeBgImage() {
-  localStorage.removeItem(BG_IMAGE_KEY);
+  localStorage.removeItem(bgImageKey());
   applyBackgroundImage(null);
   renderBgSettingsUI();
   showToast("已移除背景圖片");
