@@ -788,6 +788,20 @@ nav.bottom-tabs {
   margin-bottom: 8px;
   display: block;
 }
+
+/* 視覺上隱藏但仍保留在渲染樹中,file input 用這個而不是 display:none,
+   避免部分 iOS Safari 版本對 display:none 的 input 呼叫 .click() 沒反應 */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
 </style>
 </head>
 
@@ -918,7 +932,7 @@ nav.bottom-tabs {
     <div class="settings-row">
       <p class="settings-row-label">背景圖片</p>
       <div id="bgPreviewWrap"></div>
-      <input type="file" id="bgImageInput" accept="image/*" style="display:none">
+      <input type="file" id="bgImageInput" accept="image/*" class="visually-hidden">
       <div class="gist-btn-row">
         <button class="gist-btn secondary" id="chooseBgBtn">選擇圖片</button>
         <button class="gist-btn danger" id="removeBgBtn" style="display:none">移除背景</button>
@@ -1104,6 +1118,8 @@ let currentEmail = null;
 
 function categoriesKey() { return `ledger_categories::${currentEmail}`; }
 function recordsKey() { return `ledger_records::${currentEmail}`; }
+const BG_IMAGE_KEY_PREFIX = "ledger_bg_image";
+function bgImageKey() { return `${BG_IMAGE_KEY_PREFIX}::${currentEmail}`; }
 
 /*
   ===== 分類資料 =====
@@ -2315,12 +2331,10 @@ function renderGistSyncUI() {
 }
 
 /*
-  ===== 背景圖片(裝置層級設定,跟主題/文字大小一樣不分帳號)=====
+  ===== 背景圖片(依帳號區隔,key 定義移到前面 bgImageKey())=====
   照片先在本機用 canvas 壓縮縮圖(限制最長邊 1280px、JPEG 品質 0.75),
   再轉成 base64 存進 localStorage,避免原始照片檔案太大超出瀏覽器儲存上限。
 */
-const BG_IMAGE_KEY_PREFIX = "ledger_bg_image";
-function bgImageKey() { return `${BG_IMAGE_KEY_PREFIX}::${currentEmail}`; }
 const BG_MAX_DIMENSION = 1280;
 
 function applyBackgroundImage(dataUrl) {
