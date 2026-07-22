@@ -532,10 +532,130 @@ nav.bottom-tabs {
   background: var(--accent);
   color: #fff;
 }
+
+/* ===== 登入 / 註冊畫面 ===== */
+.auth-screen {
+  position: fixed;
+  inset: 0;
+  background: var(--bg-app);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  z-index: 500;
+}
+.auth-card {
+  width: 100%;
+  max-width: 340px;
+}
+.auth-title {
+  text-align: center;
+  font-size: 1.3rem;
+  font-weight: 600;
+  margin: 0 0 1.25rem;
+}
+.auth-mode-switch { margin-bottom: 1.25rem; }
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.auth-form input {
+  background: var(--bg-card);
+  border: 0.5px solid var(--border-subtle);
+  border-radius: 10px;
+  color: var(--text-main);
+  padding: 0.75rem 1rem;
+  font-size: 0.95rem;
+}
+.auth-submit-btn {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 10px;
+  padding: 0.75rem 0;
+  font-size: 1rem;
+  font-weight: 500;
+  margin-top: 4px;
+}
+.auth-error {
+  color: #e8837d;
+  font-size: 0.85rem;
+  text-align: center;
+  min-height: 1.2rem;
+  margin: 10px 0 0;
+}
+
+/* ===== 雲端同步設定 ===== */
+.gist-hint {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  margin: 0 0 8px;
+  line-height: 1.5;
+}
+.gist-token-input {
+  width: 100%;
+  background: var(--bg-app);
+  border: 0.5px solid var(--border-subtle);
+  border-radius: 8px;
+  color: var(--text-main);
+  padding: 8px 10px;
+  font-size: 0.9rem;
+  margin-bottom: 8px;
+}
+.gist-btn-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.gist-btn {
+  flex: 1;
+  min-width: 90px;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 8px 0;
+  font-size: 0.85rem;
+}
+.gist-btn.secondary { background: var(--bg-app); color: var(--text-main); }
+.gist-btn.danger { background: #d9463d; }
+.gist-status {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  margin: 8px 0 0;
+}
 </style>
 </head>
 
 <body>
+
+<!-- ===== 登入 / 註冊畫面:未登入時顯示,蓋住整個App ===== -->
+<div class="auth-screen" id="authScreen">
+  <div class="auth-card">
+    <p class="auth-title">快速記帳</p>
+
+    <div class="segmented auth-mode-switch" id="authModeSwitch">
+      <button class="segmented-btn active" data-mode="login">登入</button>
+      <button class="segmented-btn" data-mode="register">註冊</button>
+    </div>
+
+    <!-- 登入表單 -->
+    <div id="loginForm" class="auth-form">
+      <input type="email" id="loginEmail" placeholder="Email" autocomplete="username">
+      <input type="password" id="loginPassword" placeholder="密碼" autocomplete="current-password">
+      <button class="auth-submit-btn" id="loginSubmitBtn">登入</button>
+    </div>
+
+    <!-- 註冊表單 -->
+    <div id="registerForm" class="auth-form" style="display:none">
+      <input type="email" id="registerEmail" placeholder="Email" autocomplete="username">
+      <input type="password" id="registerPassword" placeholder="設定密碼(至少4碼)" autocomplete="new-password">
+      <input type="password" id="registerPasswordConfirm" placeholder="再輸入一次密碼" autocomplete="new-password">
+      <button class="auth-submit-btn" id="registerSubmitBtn">註冊</button>
+    </div>
+
+    <p class="auth-error" id="authError"></p>
+  </div>
+</div>
+
+<div id="appRoot" style="display:none">
 
 <main class="app-content">
 
@@ -586,6 +706,17 @@ nav.bottom-tabs {
   <!-- ===== 分頁五:設定 ===== -->
   <section data-page="settings">
     <p class="page-title">設定</p>
+
+    <div class="settings-row">
+      <p class="settings-row-label">目前登入帳號</p>
+      <p style="margin:0 0 10px" id="currentAccountLabel"></p>
+      <button class="auth-submit-btn" id="logoutBtn" style="background:#d9463d">登出</button>
+    </div>
+
+    <div class="settings-row">
+      <p class="settings-row-label">雲端同步(GitHub Gist)</p>
+      <div id="gistSyncContainer"></div>
+    </div>
 
     <div class="settings-row">
       <p class="settings-row-label">外觀</p>
@@ -664,6 +795,9 @@ nav.bottom-tabs {
   </div>
 </div>
 
+</div>
+<!-- appRoot 結束 -->
+
 <!-- ===== 完成提示 ===== -->
 <div class="toast" id="toast"></div>
 
@@ -716,6 +850,7 @@ function switchPage(target) {
   if (target === "list") renderRecordList();
   if (target === "stats") renderStats();
   if (target === "categories") renderCategoryManageList();
+  if (target === "settings") renderGistSyncUI();
 }
 
 document.getElementById("bottomTabs").addEventListener("click", (e) => {
@@ -725,11 +860,20 @@ document.getElementById("bottomTabs").addEventListener("click", (e) => {
 });
 
 /*
+  ===== 帳號系統 =====
+  currentEmail 決定目前是「誰」在用這支手機,
+  所有記帳資料、分類資料都用 email 當作 key 的一部分,彼此完全獨立不互通。
+*/
+let currentEmail = null;
+
+function categoriesKey() { return `ledger_categories::${currentEmail}`; }
+function recordsKey() { return `ledger_records::${currentEmail}`; }
+
+/*
   ===== 分類資料 =====
-  存放在 localStorage,由「分類管理頁」新增/編輯/刪除/排序,
+  存放在 localStorage(依帳號區隔),由「分類管理頁」新增/編輯/刪除/排序,
   記帳輸入頁的九宮格、統計頁、明細頁全部讀取同一份資料,不會各自維護一份。
 */
-const CATEGORIES_KEY = "ledger_categories";
 const DEFAULT_CATEGORIES = [
   { id: "food", name: "飲食" },
   { id: "transport", name: "交通" },
@@ -737,21 +881,21 @@ const DEFAULT_CATEGORIES = [
 ];
 
 function loadCategories() {
-  const raw = localStorage.getItem(CATEGORIES_KEY);
+  const raw = localStorage.getItem(categoriesKey());
   if (raw) return JSON.parse(raw);
-  localStorage.setItem(CATEGORIES_KEY, JSON.stringify(DEFAULT_CATEGORIES));
+  localStorage.setItem(categoriesKey(), JSON.stringify(DEFAULT_CATEGORIES));
   return DEFAULT_CATEGORIES.slice();
 }
 
 function saveCategories(list) {
-  localStorage.setItem(CATEGORIES_KEY, JSON.stringify(list));
+  localStorage.setItem(categoriesKey(), JSON.stringify(list));
 }
 
 function makeCategoryId() {
   return "cat_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
 }
 
-let categories = loadCategories();
+let categories = []; // 登入後才會實際載入該帳號的分類資料
 
 /*
   ===== 快捷金額(之後從設定頁讀取,先寫死) =====
@@ -759,20 +903,17 @@ let categories = loadCategories();
 const quickAmounts = [60, 100, 150];
 
 /*
-  ===== 本地資料庫(先用 localStorage,之後可以再加 Gist 同步) =====
-  key: "ledger_records",value: JSON 陣列
+  ===== 本地資料庫(依帳號區隔,先用 localStorage,之後可以再加 Gist 同步) =====
 */
-const DB_KEY = "ledger_records";
-
 function loadRecords() {
-  const raw = localStorage.getItem(DB_KEY);
+  const raw = localStorage.getItem(recordsKey());
   return raw ? JSON.parse(raw) : [];
 }
 
 function saveRecord(record) {
   const records = loadRecords();
   records.push(record);
-  localStorage.setItem(DB_KEY, JSON.stringify(records));
+  localStorage.setItem(recordsKey(), JSON.stringify(records));
 }
 
 function makeRecordId(date) {
@@ -942,8 +1083,7 @@ function renderCategoryGrid() {
   });
 }
 
-renderCategoryGrid();
-renderQuickAmounts();
+// 這兩個函式改成登入成功 / 已有有效 session 時才呼叫(見檔案結尾 enterApp())
 
 /*
   ===== 明細查詢頁 =====
@@ -1009,7 +1149,7 @@ function catNameOf(id) {
 
 function deleteRecord(id) {
   const records = loadRecords().filter(r => r.id !== id);
-  localStorage.setItem(DB_KEY, JSON.stringify(records));
+  localStorage.setItem(recordsKey(), JSON.stringify(records));
   renderRecordList();
   showToast("已刪除該筆紀錄");
 }
@@ -1367,6 +1507,338 @@ document.getElementById("fontScaleSegmented").addEventListener("click", (e) => {
 // 開啟頁面時,讓設定頁的按鈕反映目前實際生效中的設定(跟 <head> 裡讀到的值一致)
 applyTheme(localStorage.getItem("ledger_theme") || "dark");
 applyFontScale(localStorage.getItem("ledger_font_scale") || "3");
+
+/*
+  ===== 帳號系統:註冊 / 登入 / 登出 / 10天內免登入 =====
+  重要限制(誠實告知,不假裝這是銀行等級的安全性):
+  這支 App 是純靜態網頁,沒有後端伺服器,所有驗證邏輯都在使用者手機的瀏覽器內執行。
+  密碼用瀏覽器內建的 SHA-256(crypto.subtle)雜湊後才儲存,不是明文,
+  但技術能力足夠的人仍有機會透過開發者工具檢查到雜湊值。
+  這個強度適合「家人朋友各自在自己手機上使用、避免彼此誤看對方帳本」的情境,
+  不適合當作正式對外服務的帳號系統。
+*/
+const ACCOUNTS_KEY = "ledger_accounts";
+const SESSION_KEY = "ledger_session";
+const SESSION_DAYS = 10;
+
+function loadAccounts() {
+  const raw = localStorage.getItem(ACCOUNTS_KEY);
+  return raw ? JSON.parse(raw) : {};
+}
+function saveAccounts(accounts) {
+  localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(accounts));
+}
+
+// 用 email 當作雜湊的鹽(salt),讓不同帳號就算密碼相同,雜湊結果也不同
+async function hashPassword(password, email) {
+  const data = new TextEncoder().encode(`${email}::${password}`);
+  const hashBuffer = await crypto.subtle.digest("SHA-256", data);
+  return Array.from(new Uint8Array(hashBuffer))
+    .map(b => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+function normalizeEmail(email) {
+  return email.trim().toLowerCase();
+}
+
+function startSession(email) {
+  const expiresAt = Date.now() + SESSION_DAYS * 24 * 60 * 60 * 1000;
+  localStorage.setItem(SESSION_KEY, JSON.stringify({ email, expiresAt }));
+}
+
+function getValidSession() {
+  const raw = localStorage.getItem(SESSION_KEY);
+  if (!raw) return null;
+  const session = JSON.parse(raw);
+  if (Date.now() > session.expiresAt) {
+    localStorage.removeItem(SESSION_KEY);
+    return null;
+  }
+  return session;
+}
+
+function showAuthError(message) {
+  document.getElementById("authError").textContent = message;
+}
+
+// 登入成功 / 已有有效 session 時,統一由這裡進入 App 主畫面
+function enterApp(email) {
+  currentEmail = email;
+  categories = loadCategories();
+
+  document.getElementById("authScreen").style.display = "none";
+  document.getElementById("appRoot").style.display = "";
+  document.getElementById("currentAccountLabel").textContent = email;
+
+  renderCategoryGrid();
+  renderQuickAmounts();
+  switchPage("input"); // 每次進入都回到記帳輸入頁,不記住上次停留的分頁
+}
+
+function showAuthScreen() {
+  currentEmail = null;
+  document.getElementById("appRoot").style.display = "none";
+  document.getElementById("authScreen").style.display = "flex";
+  document.getElementById("loginEmail").value = "";
+  document.getElementById("loginPassword").value = "";
+  showAuthError("");
+}
+
+async function handleRegister() {
+  const email = normalizeEmail(document.getElementById("registerEmail").value);
+  const password = document.getElementById("registerPassword").value;
+  const passwordConfirm = document.getElementById("registerPasswordConfirm").value;
+
+  if (!email.includes("@")) return showAuthError("請輸入正確的 Email 格式");
+  if (password.length < 4) return showAuthError("密碼至少需要 4 碼");
+  if (password !== passwordConfirm) return showAuthError("兩次輸入的密碼不一致");
+
+  const accounts = loadAccounts();
+  if (accounts[email]) return showAuthError("此 Email 已經註冊過,請直接登入");
+
+  const passwordHash = await hashPassword(password, email);
+  accounts[email] = { passwordHash, createdAt: Date.now() };
+  saveAccounts(accounts);
+
+  startSession(email);
+  showAuthError("");
+  enterApp(email);
+}
+
+async function handleLogin() {
+  const email = normalizeEmail(document.getElementById("loginEmail").value);
+  const password = document.getElementById("loginPassword").value;
+
+  if (!email || !password) return showAuthError("請輸入 Email 與密碼");
+
+  const accounts = loadAccounts();
+  const account = accounts[email];
+  if (!account) return showAuthError("找不到這個帳號,請先註冊");
+
+  const passwordHash = await hashPassword(password, email);
+  if (passwordHash !== account.passwordHash) return showAuthError("密碼錯誤");
+
+  startSession(email);
+  showAuthError("");
+  enterApp(email);
+}
+
+function handleLogout() {
+  if (!confirm("確定要登出嗎?")) return;
+  localStorage.removeItem(SESSION_KEY);
+  showAuthScreen();
+}
+
+// 登入/註冊 切換頁籤
+document.getElementById("authModeSwitch").addEventListener("click", (e) => {
+  const btn = e.target.closest(".segmented-btn");
+  if (!btn) return;
+  const mode = btn.dataset.mode;
+  document.querySelectorAll("#authModeSwitch .segmented-btn").forEach(b =>
+    b.classList.toggle("active", b === btn)
+  );
+  document.getElementById("loginForm").style.display = mode === "login" ? "flex" : "none";
+  document.getElementById("registerForm").style.display = mode === "register" ? "flex" : "none";
+  showAuthError("");
+});
+
+document.getElementById("loginSubmitBtn").addEventListener("click", handleLogin);
+document.getElementById("registerSubmitBtn").addEventListener("click", handleRegister);
+document.getElementById("logoutBtn").addEventListener("click", handleLogout);
+
+// Enter 鍵直接送出,減少點擊次數
+document.getElementById("loginPassword").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") handleLogin();
+});
+document.getElementById("registerPasswordConfirm").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") handleRegister();
+});
+
+/*
+  ===== App 開機流程 =====
+  有效 session 存在 → 直接進入主畫面,不用重新輸入密碼(10天內都是如此)
+  沒有 / 過期 → 顯示登入畫面
+*/
+const existingSession = getValidSession();
+if (existingSession) {
+  enterApp(existingSession.email);
+} else {
+  showAuthScreen();
+}
+
+/*
+  ===== 雲端同步(GitHub Gist)=====
+  每個帳號(email)各自儲存自己的 Token + Gist ID,彼此獨立,
+  data.json 內容涵蓋分類與記帳明細,跟本機資料結構完全一致。
+
+  提醒:這裡存的 Personal Access Token 有讀寫你 Gist 的權限,
+  存放在瀏覽器 localStorage 內,只要是同一支手機、同一個帳號登入就看得到,
+  不要在公用裝置上設定這個功能。
+*/
+const GIST_API = "https://api.github.com/gists";
+const GIST_FILENAME = "ledger-data.json";
+
+function gistConfigKey() { return `ledger_gist_config::${currentEmail}`; }
+
+function loadGistConfig() {
+  const raw = localStorage.getItem(gistConfigKey());
+  return raw ? JSON.parse(raw) : null;
+}
+function saveGistConfig(config) {
+  localStorage.setItem(gistConfigKey(), JSON.stringify(config));
+}
+function clearGistConfig() {
+  localStorage.removeItem(gistConfigKey());
+}
+
+function buildExportData() {
+  return {
+    version: 1,
+    categories: categories,
+    quickAmounts: quickAmounts,
+    records: loadRecords()
+  };
+}
+
+function applyImportData(data) {
+  categories = data.categories || DEFAULT_CATEGORIES.slice();
+  saveCategories(categories);
+  localStorage.setItem(recordsKey(), JSON.stringify(data.records || []));
+  // 重新整理目前看得到的畫面,確保還原後立刻反映最新資料
+  renderCategoryGrid();
+  renderRecordList();
+  renderStats();
+  renderCategoryManageList();
+}
+
+async function gistRequest(url, options = {}, token) {
+  const res = await fetch(url, {
+    ...options,
+    headers: {
+      "Authorization": `Bearer ${token}`,
+      "Accept": "application/vnd.github+json",
+      ...(options.headers || {})
+    }
+  });
+  if (!res.ok) {
+    if (res.status === 401) throw new Error("Token 無效或已過期,請重新產生一組");
+    if (res.status === 404) throw new Error("找不到這個 Gist,可能已被刪除");
+    throw new Error(`GitHub API 錯誤(狀態碼 ${res.status})`);
+  }
+  return res.json();
+}
+
+async function connectGist() {
+  const token = document.getElementById("gistTokenInput").value.trim();
+  if (!token) return showToast("請先貼上 Personal Access Token");
+
+  const existing = loadGistConfig();
+  document.getElementById("gistConnectBtn").disabled = true;
+
+  try {
+    if (existing && existing.gistId) {
+      // 這支手機/帳號之前設定過,這次只是要驗證新 token 是否還能存取同一個 Gist
+      await gistRequest(`${GIST_API}/${existing.gistId}`, {}, token);
+      saveGistConfig({ ...existing, token });
+      showToast("已重新連接雲端備份");
+    } else {
+      // 第一次設定:建立一個新的私密 Gist,內容放目前這支手機上的資料
+      const body = {
+        description: "快速記帳 資料備份(請勿手動修改此檔案)",
+        public: false,
+        files: { [GIST_FILENAME]: { content: JSON.stringify(buildExportData(), null, 2) } }
+      };
+      const created = await gistRequest(GIST_API, { method: "POST", body: JSON.stringify(body) }, token);
+      saveGistConfig({ token, gistId: created.id, lastSyncAt: Date.now() });
+      showToast("已建立雲端備份");
+    }
+  } catch (err) {
+    showToast(err.message);
+  } finally {
+    document.getElementById("gistConnectBtn").disabled = false;
+    renderGistSyncUI();
+  }
+}
+
+async function pushToGist() {
+  const config = loadGistConfig();
+  if (!config) return;
+  try {
+    await gistRequest(`${GIST_API}/${config.gistId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ files: { [GIST_FILENAME]: { content: JSON.stringify(buildExportData(), null, 2) } } })
+    }, config.token);
+    saveGistConfig({ ...config, lastSyncAt: Date.now() });
+    showToast("已上傳目前資料到雲端");
+  } catch (err) {
+    showToast(err.message);
+  }
+  renderGistSyncUI();
+}
+
+async function pullFromGist() {
+  const config = loadGistConfig();
+  if (!config) return;
+  if (!confirm("這會用雲端的資料覆蓋這支手機上目前的記帳資料,確定要繼續嗎?")) return;
+  try {
+    const gist = await gistRequest(`${GIST_API}/${config.gistId}`, {}, config.token);
+    const file = gist.files[GIST_FILENAME];
+    if (!file) throw new Error("Gist 內找不到資料檔案");
+    applyImportData(JSON.parse(file.content));
+    saveGistConfig({ ...config, lastSyncAt: Date.now() });
+    showToast("已從雲端還原資料");
+  } catch (err) {
+    showToast(err.message);
+  }
+  renderGistSyncUI();
+}
+
+function disconnectGist() {
+  if (!confirm("確定要中斷雲端同步嗎?(本機資料不會被刪除)")) return;
+  clearGistConfig();
+  renderGistSyncUI();
+  showToast("已中斷雲端同步");
+}
+
+function renderGistSyncUI() {
+  const container = document.getElementById("gistSyncContainer");
+  if (!container) return; // 尚未登入、appRoot 還沒渲染時直接跳過
+  const config = loadGistConfig();
+
+  if (!config) {
+    container.innerHTML = `
+      <p class="gist-hint">
+        貼上你的 GitHub Personal Access Token(需要 Gist 讀寫權限),
+        第一次連接會自動建立一個私密 Gist 存放這個帳號的記帳資料。
+      </p>
+      <input type="password" class="gist-token-input" id="gistTokenInput" placeholder="ghp_xxxxxxxxxxxx">
+      <div class="gist-btn-row">
+        <button class="gist-btn" id="gistConnectBtn">連接雲端備份</button>
+      </div>
+    `;
+    document.getElementById("gistConnectBtn").addEventListener("click", connectGist);
+    return;
+  }
+
+  const lastSyncText = config.lastSyncAt
+    ? new Date(config.lastSyncAt).toLocaleString("zh-TW")
+    : "尚未同步過";
+
+  container.innerHTML = `
+    <p class="gist-status">已連接 · 上次同步:${lastSyncText}</p>
+    <div class="gist-btn-row">
+      <button class="gist-btn" id="gistPushBtn">上傳目前資料</button>
+      <button class="gist-btn secondary" id="gistPullBtn">從雲端還原</button>
+    </div>
+    <div class="gist-btn-row" style="margin-top:8px">
+      <button class="gist-btn danger" id="gistDisconnectBtn">中斷同步</button>
+    </div>
+  `;
+  document.getElementById("gistPushBtn").addEventListener("click", pushToGist);
+  document.getElementById("gistPullBtn").addEventListener("click", pullFromGist);
+  document.getElementById("gistDisconnectBtn").addEventListener("click", disconnectGist);
+}
 </script>
 
 </body>
