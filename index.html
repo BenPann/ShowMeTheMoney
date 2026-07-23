@@ -82,7 +82,6 @@ html, body {
 }
 
 body {
-  position: relative; /* 讓下面的背景圖層(z-index:-1)有明確的堆疊環境可以依附,行為才會穩定 */
   background-color: var(--bg-app);
   color: var(--text-main);
   margin: 0;
@@ -98,12 +97,13 @@ body {
 
 /* 背景圖片圖層:position:fixed 讓大小永遠依照螢幕viewport計算,
    不會受頁面內容捲動高度影響,不會有拉伸或縮放跑掉的問題。
-   z-index:-1 是關鍵:沒有它,這個「有定位」的圖層會蓋在一般文字內容(例如頁面標題、
-   月份切換這種沒有卡片背景包住的元素)上方,導致文字看起來像消失了。 */
+   這裡刻意不用負值 z-index——body 沒有明確建立「堆疊環境」時,
+   負值 z-index 的元素會被整個推到 body 自己的底色後面,完全看不見。
+   改成:這層維持 z-index:0(不特別疊高),讓下面 #appRoot 疊在它上面一層即可。 */
 #bgImageLayer {
   position: fixed;
   inset: 0;
-  z-index: -1;
+  z-index: 0;
   background-image: var(--custom-bg-image, none);
   background-size: cover;
   background-position: center;
@@ -111,7 +111,14 @@ body {
   pointer-events: none;
 }
 
-/* ===== 主內容區:每個分頁是一個 <section data-page="..."> ===== */
+/* 實際內容的容器,明確疊在背景圖層上面一層,
+   這樣裡面沒有卡片背景包住的文字(頁面標題、月份切換等)才不會被背景圖蓋住 */
+#appRoot {
+  position: relative;
+  z-index: 1;
+}
+
+/* 主內容區:每個分頁是一個 <section data-page="..."> ===== */
 main.app-content {
   flex: 1;
   padding: 1rem;
