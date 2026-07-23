@@ -82,6 +82,7 @@ html, body {
 }
 
 body {
+  position: relative; /* 讓下面的背景圖層(z-index:-1)有明確的堆疊環境可以依附,行為才會穩定 */
   background-color: var(--bg-app);
   color: var(--text-main);
   margin: 0;
@@ -96,10 +97,13 @@ body {
 }
 
 /* 背景圖片圖層:position:fixed 讓大小永遠依照螢幕viewport計算,
-   不會受頁面內容捲動高度影響,不會有拉伸或縮放跑掉的問題 */
+   不會受頁面內容捲動高度影響,不會有拉伸或縮放跑掉的問題。
+   z-index:-1 是關鍵:沒有它,這個「有定位」的圖層會蓋在一般文字內容(例如頁面標題、
+   月份切換這種沒有卡片背景包住的元素)上方,導致文字看起來像消失了。 */
 #bgImageLayer {
   position: fixed;
   inset: 0;
+  z-index: -1;
   background-image: var(--custom-bg-image, none);
   background-size: cover;
   background-position: center;
@@ -395,6 +399,17 @@ nav.bottom-tabs {
 .icon-picker-btn .icon-svg { width: 22px; height: 22px; }
 .cat-icon { width: 18px; height: 18px; margin-right: 4px; vertical-align: -4px; }
 .cat-icon-preview { width: 20px; height: 20px; }
+
+/* 按鈕裡的圖示改用 block,避免 inline-block 預設保留的文字下緣空間
+   讓圖示在 flex 置中的按鈕裡看起來偏下方(打勾/叉叉/垃圾桶/筆這幾顆按鈕都適用) */
+.cat-icon-btn .icon-svg,
+.cat-submit-btn .icon-svg,
+.keypad-btn .icon-svg,
+.record-delete-btn .icon-svg,
+.category-btn .icon-svg,
+.cat-icon-picker-btn .icon-svg {
+  display: block;
+}
 
 /* ===== 完成提示 Toast ===== */
 .toast {
@@ -1125,36 +1140,15 @@ nav.bottom-tabs {
 <script>
 /*
   ===== 禁止縮放:雙擊放大 / 雙指縮放 =====
-  這裡跟 <meta viewport> 與 CSS touch-action 是三層保險,
-  因為不同 iOS/瀏覽器版本對前兩者的支援程度不一,加上這層 JS 判斷最保險。
+  這裡跟 <meta viewport> 與 CSS touch-action 是兩層保險,
+  因為不同 iOS/瀏覽器版本對前者的支援程度不一,加上這層 JS 判斷更保險。
+  (原本還有一層用 touchend 時間差判斷雙擊放大的邏輯,會誤傷快速連點按鈕的操作,已移除)
 */
 
 // Safari 專屬的手勢事件(雙指縮放會觸發這組事件),直接攔截取消
 document.addEventListener("gesturestart", (e) => e.preventDefault());
 document.addEventListener("gesturechange", (e) => e.preventDefault());
 document.addEventListener("gestureend", (e) => e.preventDefault());
-
-// 雙擊放大的判斷:兩次 touchend 要「時間夠近」且「位置夠近」才視為雙擊,
-// 否則快速連點不同按鈕(例如數字鍵盤)會被誤判成雙擊,導致點擊被吃掉、反應延遲
-let lastTouchEndTime = 0;
-let lastTouchX = 0;
-let lastTouchY = 0;
-document.addEventListener("touchend", (e) => {
-  const now = Date.now();
-  const touch = e.changedTouches && e.changedTouches[0];
-  const dx = touch ? Math.abs(touch.clientX - lastTouchX) : Infinity;
-  const dy = touch ? Math.abs(touch.clientY - lastTouchY) : Infinity;
-  const isSameSpot = dx < 25 && dy < 25;
-
-  if (now - lastTouchEndTime <= 300 && isSameSpot) {
-    e.preventDefault();
-  }
-  lastTouchEndTime = now;
-  if (touch) {
-    lastTouchX = touch.clientX;
-    lastTouchY = touch.clientY;
-  }
-}, { passive: false });
 
 /*
   ===== 架構說明 =====
