@@ -127,9 +127,19 @@ main.app-content {
 }
 
 .page-title {
-  font-size: 0.9rem;
-  color: var(--text-muted);
-  margin: 0 0 0.75rem;
+  font-size: 1.9rem;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  color: var(--text-main); /* 不支援 text-stroke 的瀏覽器,退回實心文字,不會整個消失看不見 */
+  margin: 0 0 1rem;
+}
+/* 支援度夠的瀏覽器(iOS Safari / Chrome 都支援)才套用外框字效果,
+   文字內部改透明、只留外框線條,做出空心字的設計感 */
+@supports (-webkit-text-stroke: 1px black) {
+  .page-title {
+    color: transparent;
+    -webkit-text-stroke: 1.5px var(--text-main);
+  }
 }
 
 section[data-page] { display: none; }
