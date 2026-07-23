@@ -593,6 +593,38 @@ nav.bottom-tabs {
   margin: 0;
 }
 
+/* ===== 每月預算進度條 ===== */
+.budget-progress-track {
+  background: var(--bg-app);
+  border-radius: 6px;
+  height: 8px;
+  overflow: hidden;
+  margin-top: 12px;
+}
+.budget-progress-fill {
+  height: 100%;
+  border-radius: 6px;
+  transition: width 0.2s ease, background 0.2s ease;
+}
+.budget-progress-label {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  margin: 6px 0 0;
+}
+
+/* ===== 明細頁搜尋框 ===== */
+.record-search-input {
+  width: 100%;
+  background: var(--bg-card);
+  border: 0.5px solid var(--border-subtle);
+  border-radius: 10px;
+  color: var(--text-main);
+  padding: 10px 12px;
+  font-size: 0.95rem;
+  margin-bottom: 0.75rem;
+  box-sizing: border-box;
+}
+
 /* ===== 統計頁:分類長條圖(水平長條,適合窄螢幕) ===== */
 .stat-bar-row {
   margin-bottom: 14px;
@@ -941,6 +973,7 @@ nav.bottom-tabs {
 
   <!-- ===== 分頁二:統計 ===== -->
   <section data-page="stats">
+    <p class="page-title">統計</p>
     <div class="month-nav">
       <button class="month-nav-btn" id="prevMonthBtn" aria-label="上個月">‹</button>
       <span id="monthLabel">2026年7月</span>
@@ -949,6 +982,7 @@ nav.bottom-tabs {
     <div class="stats-total-card">
       <p class="stats-total-label">本月總支出</p>
       <p class="stats-total-value" id="statsTotalValue">$0</p>
+      <div id="budgetProgressWrap"></div>
     </div>
     <div id="statsBars"></div>
   </section>
@@ -956,6 +990,7 @@ nav.bottom-tabs {
   <!-- ===== 分頁三:明細 ===== -->
   <section data-page="list">
     <p class="page-title">消費明細</p>
+    <input type="text" id="recordSearchInput" class="record-search-input" placeholder="搜尋備註...">
     <div class="filter-chips" id="filterChips">
       <button class="filter-chip active" data-filter="all">全部</button>
       <button class="filter-chip" data-filter="month">本月</button>
@@ -1018,6 +1053,15 @@ nav.bottom-tabs {
         <button class="segmented-btn" data-value="4">L</button>
         <button class="segmented-btn" data-value="5">XL</button>
       </div>
+    </div>
+
+    <div class="settings-row">
+      <p class="settings-row-label">每月預算</p>
+      <div class="cat-add-row">
+        <input type="number" id="monthlyBudgetInput" inputmode="decimal" min="0" placeholder="留空 = 不設定">
+        <button id="saveBudgetBtn" class="cat-submit-btn" aria-label="儲存預算"></button>
+      </div>
+      <p class="gist-hint" style="margin-top:8px">設定後,統計頁會顯示本月剩餘額度,超支時長條圖會變色提醒</p>
     </div>
 
     <div class="settings-row">
@@ -1181,7 +1225,7 @@ function switchPage(target) {
   if (target === "list") renderRecordList();
   if (target === "stats") renderStats();
   if (target === "categories") renderCategoryManageList();
-  if (target === "settings") { renderGistSyncUI(); renderBgSettingsUI(); }
+  if (target === "settings") { renderGistSyncUI(); renderBgSettingsUI(); renderBudgetSettingsUI(); }
 }
 
 document.getElementById("bottomTabs").addEventListener("click", (e) => {
@@ -1288,6 +1332,7 @@ buildIconSprite();
 document.getElementById("confirmBtn").innerHTML = iconSvgTag("check");
 document.getElementById("addCategoryBtn").innerHTML = iconSvgTag("plus");
 document.getElementById("noteSaveBtn").innerHTML = iconSvgTag("check");
+document.getElementById("saveBudgetBtn").innerHTML = iconSvgTag("check");
 
 function loadCategories() {
   const raw = localStorage.getItem(categoriesKey());
@@ -1577,6 +1622,7 @@ function renderCategoryGrid() {
 let currentFilter = "all";
 let categoryFilter = null;   // 從統計頁點長條圖進來時,會設定這個值
 let filterMonthDate = null;  // 從統計頁點長條圖進來時,鎖定當時檢視的月份
+let searchQuery = "";        // 明細頁搜尋框的關鍵字
 
 function isInMonth(ts, now) {
   const d = new Date(ts * 1000);
@@ -1594,6 +1640,15 @@ function isInWeek(ts, now) {
 function filterRecords(records) {
   let result = records;
   if (categoryFilter) result = result.filter(r => r.categoryId === categoryFilter);
+
+  if (searchQuery) {
+    const q = searchQuery;
+    result = result.filter(r => {
+      const note = (r.note || "").toLowerCase();
+      const catName = catNameOf(r.categoryId).toLowerCase();
+      return note.includes(q) || catName.includes(q);
+    });
+  }
 
   // 從統計頁點進來的月份鎖定,優先於一般的全部/本月/本週篩選膠囊
   if (filterMonthDate) return result.filter(r => isInStatsMonth(r.ts, filterMonthDate));
@@ -1801,6 +1856,11 @@ document.getElementById("filterChips").addEventListener("click", (e) => {
   renderRecordList();
 });
 
+document.getElementById("recordSearchInput").addEventListener("input", (e) => {
+  searchQuery = e.target.value.trim().toLowerCase();
+  renderRecordList();
+});
+
 /*
   ===== 統計頁 =====
   串接同一份 loadRecords() 資料,依「目前檢視的月份」加總各分類金額
@@ -1818,6 +1878,75 @@ function isInStatsMonth(ts, monthDate) {
   const d = new Date(ts * 1000);
   return d.getFullYear() === monthDate.getFullYear() && d.getMonth() === monthDate.getMonth();
 }
+
+/*
+  ===== 每月預算(依帳號區隔)=====
+  只存一個數字當作「每月總預算」,不分月份,套用在你目前檢視的任何一個月。
+*/
+function budgetKey() { return `ledger_budget::${currentEmail}`; }
+
+function loadBudget() {
+  const raw = localStorage.getItem(budgetKey());
+  const value = parseFloat(raw);
+  return raw && !isNaN(value) && value > 0 ? value : null;
+}
+
+function saveBudget(value) {
+  if (value === null) {
+    localStorage.removeItem(budgetKey());
+  } else {
+    localStorage.setItem(budgetKey(), String(value));
+  }
+}
+
+function renderBudgetProgress(total) {
+  const wrap = document.getElementById("budgetProgressWrap");
+  const budget = loadBudget();
+  if (!budget) {
+    wrap.innerHTML = "";
+    return;
+  }
+  const ratio = total / budget;
+  const percent = Math.min(ratio, 1) * 100;
+  let barColor = "var(--accent)";
+  if (ratio >= 1) barColor = "#d9463d";
+  else if (ratio >= 0.8) barColor = "#e0a030";
+
+  const remaining = budget - total;
+  const remainingText = remaining >= 0 ? `剩餘 $${remaining}` : `超支 $${Math.abs(remaining)}`;
+  const labelStyle = ratio >= 1 ? "color:#d9463d;font-weight:600;" : "";
+
+  wrap.innerHTML = `
+    <div class="budget-progress-track">
+      <div class="budget-progress-fill" style="width:${percent}%; background:${barColor}"></div>
+    </div>
+    <p class="budget-progress-label" style="${labelStyle}">預算 $${budget} · ${remainingText}</p>
+  `;
+}
+
+function renderBudgetSettingsUI() {
+  const input = document.getElementById("monthlyBudgetInput");
+  const budget = loadBudget();
+  input.value = budget || "";
+}
+
+document.getElementById("saveBudgetBtn").addEventListener("click", () => {
+  const input = document.getElementById("monthlyBudgetInput");
+  const raw = input.value.trim();
+  if (!raw) {
+    saveBudget(null);
+    showToast("已清除每月預算設定");
+  } else {
+    const value = parseFloat(raw);
+    if (isNaN(value) || value <= 0) {
+      showToast("請輸入大於 0 的數字");
+      return;
+    }
+    saveBudget(value);
+    showToast("已儲存每月預算");
+  }
+  renderStats(); // 立即反映在統計頁,不用切頁再切回來才更新
+});
 
 function computeCategoryTotals(records) {
   const totals = {};
@@ -1843,6 +1972,7 @@ function renderStats() {
   const monthRecords = loadRecords().filter(r => isInStatsMonth(r.ts, monthDate));
   const total = monthRecords.reduce((sum, r) => sum + r.amount, 0);
   document.getElementById("statsTotalValue").textContent = `$${total}`;
+  renderBudgetProgress(total);
 
   const catTotals = computeCategoryTotals(monthRecords);
   const barsEl = document.getElementById("statsBars");
