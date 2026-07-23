@@ -83,10 +83,6 @@ html, body {
 
 body {
   background-color: var(--bg-app);
-  background-image: var(--custom-bg-image, none);
-  background-size: cover;
-  background-position: center;
-  background-repeat: no-repeat;
   color: var(--text-main);
   margin: 0;
   padding: 0;
@@ -97,6 +93,18 @@ body {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
+}
+
+/* 背景圖片圖層:position:fixed 讓大小永遠依照螢幕viewport計算,
+   不會受頁面內容捲動高度影響,不會有拉伸或縮放跑掉的問題 */
+#bgImageLayer {
+  position: fixed;
+  inset: 0;
+  background-image: var(--custom-bg-image, none);
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  pointer-events: none;
 }
 
 /* ===== 主內容區:每個分頁是一個 <section data-page="..."> ===== */
@@ -158,7 +166,8 @@ nav.bottom-tabs {
   border-top: 0.5px solid var(--border-subtle);
   display: grid;
   grid-template-columns: repeat(5, 1fr);
-  padding: 6px 0;
+  gap: 4px;
+  padding: 6px 4px;
   padding-bottom: calc(6px + env(safe-area-inset-bottom));
 }
 
@@ -168,14 +177,20 @@ nav.bottom-tabs {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 2px;
-  padding: 6px 0;
+  gap: 3px;
+  padding: 7px 2px;
+  margin: 0 2px;
+  border-radius: 12px;
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: 13px;
   cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
 }
-.tab-btn svg { width: 22px; height: 22px; }
-.tab-btn.active { color: var(--accent); }
+.tab-btn svg { width: 26px; height: 26px; }
+.tab-btn.active {
+  background: var(--accent);
+  color: #fff;
+}
 
 /* ===== 金額輸入彈出視窗 ===== */
 .amount-modal {
@@ -294,7 +309,11 @@ nav.bottom-tabs {
   color: #fff;
   font-size: 1rem;
   font-weight: 500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
+.keypad-btn.confirm .icon-svg { width: 22px; height: 22px; }
 .keypad-btn.confirm:disabled {
   opacity: 0.4;
 }
@@ -494,7 +513,9 @@ nav.bottom-tabs {
   background: #d9463d;
   color: #fff;
   border: none;
-  font-size: 0.85rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   z-index: 0;
 }
 
@@ -603,6 +624,7 @@ nav.bottom-tabs {
 }
 .cat-icon-btn {
   height: 36px;
+  min-width: 32px;
   box-sizing: border-box;
   display: flex;
   align-items: center;
@@ -615,6 +637,7 @@ nav.bottom-tabs {
   padding: 0 6px;
   border-radius: 6px;
 }
+.cat-icon-btn .icon-svg { width: 18px; height: 18px; }
 .cat-icon-btn:active { background: var(--bg-card-hover); }
 .cat-icon-btn.danger { color: #e8837d; }
 .cat-icon-btn:disabled { opacity: 0.3; }
@@ -657,9 +680,14 @@ nav.bottom-tabs {
   background: var(--accent);
   color: #fff;
   border: 0.5px solid transparent;
-  padding: 0 16px;
+  padding: 0;
+  width: 42px;
   flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
+.cat-submit-btn .icon-svg { width: 20px; height: 20px; }
 
 /* ===== 橫向鎖定提示遮罩 ===== */
 .rotate-lock-overlay {
@@ -840,6 +868,10 @@ nav.bottom-tabs {
 </head>
 
 <body>
+
+<!-- ===== 背景圖片獨立圖層:固定貼在螢幕上,大小永遠依螢幕viewport計算,
+     不會因為各頁內容高度不同而跟著被拉伸或縮放 ===== -->
+<div id="bgImageLayer"></div>
 
 <!-- ===== 登入 / 註冊畫面:未登入時顯示,蓋住整個App ===== -->
 <div class="auth-screen" id="authScreen">
@@ -1213,8 +1245,21 @@ const ICON_DEFS = [
   { key: "piggy", label: "儲蓄", path: '<path d="M4 12a6 6 0 0 1 6-6h4a6 6 0 0 1 6 5v2l2 2-2 1v2h-3l-1 2H9l-1-2H6v-2a6 6 0 0 1-2-4z"/><circle cx="15" cy="10" r="1"/><path d="M9 6V4"/>' }
 ];
 
+/*
+  ===== UI 動作圖示(刪除/編輯/確認/取消/新增)=====
+  跟上面的分類圖示分開放,這組不會出現在「分類圖示選擇器」的清單裡,
+  純粹給按鈕本身當作圖示用,取代原本的文字。
+*/
+const UI_ICON_DEFS = [
+  { key: "trash", path: '<path d="M4 7h16"/><path d="M9 7V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v3"/><path d="M6 7l1 13a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-13"/><path d="M10 11v6M14 11v6"/>' },
+  { key: "pencil", path: '<path d="M4 20l4-1 11-11a2 2 0 0 0-3-3L5 16l-1 4z"/><path d="M13 6l3 3"/>' },
+  { key: "check", path: '<path d="M4 12l5 5L20 6"/>' },
+  { key: "x", path: '<path d="M5 5l14 14M19 5L5 19"/>' },
+  { key: "plus", path: '<path d="M12 4v16M4 12h16"/>' }
+];
+
 function getIconDef(key) {
-  return ICON_DEFS.find(i => i.key === key);
+  return ICON_DEFS.find(i => i.key === key) || UI_ICON_DEFS.find(i => i.key === key);
 }
 
 // 組出一個 <svg><use> 標籤,實際圖形定義在共用的 sprite 裡(見 buildIconSprite)
@@ -1225,13 +1270,20 @@ function iconSvgTag(key, cssClass) {
 
 // 把所有圖示定義組成一份隱藏的 SVG sprite,插入頁面一次,之後全部用 <use> 參照,不重複定義路徑
 function buildIconSprite() {
-  const symbols = ICON_DEFS.map(i => `<symbol id="icon-${i.key}" viewBox="0 0 24 24">${i.path}</symbol>`).join("");
+  const allDefs = [...ICON_DEFS, ...UI_ICON_DEFS];
+  const symbols = allDefs.map(i => `<symbol id="icon-${i.key}" viewBox="0 0 24 24">${i.path}</symbol>`).join("");
   const sprite = document.createElement("div");
   sprite.style.display = "none";
   sprite.innerHTML = `<svg>${symbols}</svg>`;
   document.body.appendChild(sprite);
 }
 buildIconSprite();
+
+// 這幾個按鈕是寫死在 HTML 裡的靜態元素,不是 JS 動態產生的模板,
+// 所以圖示要在這裡用程式補上去,而不是直接寫在 HTML 裡
+document.getElementById("confirmBtn").innerHTML = iconSvgTag("check");
+document.getElementById("addCategoryBtn").innerHTML = iconSvgTag("plus");
+document.getElementById("noteSaveBtn").innerHTML = iconSvgTag("check");
 
 function loadCategories() {
   const raw = localStorage.getItem(categoriesKey());
@@ -1691,7 +1743,7 @@ function renderRecordList() {
           <span class="record-cat">${catNameOf(r.categoryId)}${noteHtml}</span>
           <span class="record-amount">$${r.amount}</span>
         </div>
-        <button class="record-delete-btn">刪除</button>
+        <button class="record-delete-btn" aria-label="刪除">${iconSvgTag("trash")}</button>
       `;
 
       const content = row.querySelector(".record-row-content");
@@ -1924,8 +1976,8 @@ function renderCategoryManageList() {
         <button type="button" class="cat-icon-picker-btn" id="editIconBtn">${editIconTag}</button>
         <input type="text" class="cat-edit-input" value="${cat.name}" maxlength="10">
         <div class="cat-row-actions">
-          <button class="cat-icon-btn" data-action="save">儲存</button>
-          <button class="cat-icon-btn" data-action="cancel">取消</button>
+          <button class="cat-icon-btn" data-action="save" aria-label="儲存">${iconSvgTag("check")}</button>
+          <button class="cat-icon-btn" data-action="cancel" aria-label="取消">${iconSvgTag("x")}</button>
         </div>
       `;
       const input = row.querySelector(".cat-edit-input");
@@ -1943,8 +1995,8 @@ function renderCategoryManageList() {
         <div class="cat-row-actions">
           <button class="cat-icon-btn" data-action="up" ${index === 0 ? "disabled" : ""}>▲</button>
           <button class="cat-icon-btn" data-action="down" ${index === categories.length - 1 ? "disabled" : ""}>▼</button>
-          <button class="cat-icon-btn" data-action="edit">編輯</button>
-          <button class="cat-icon-btn danger" data-action="delete">刪除</button>
+          <button class="cat-icon-btn" data-action="edit" aria-label="編輯">${iconSvgTag("pencil")}</button>
+          <button class="cat-icon-btn danger" data-action="delete" aria-label="刪除">${iconSvgTag("trash")}</button>
         </div>
       `;
       row.querySelector('[data-action="up"]').addEventListener("click", () => moveCategory(cat.id, "up"));
