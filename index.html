@@ -593,6 +593,11 @@ nav.bottom-tabs {
   font-weight: 500;
   margin: 0;
 }
+.stats-avg-daily {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  margin: 4px 0 0;
+}
 
 /* ===== 每月預算進度條 ===== */
 .budget-progress-track {
@@ -612,6 +617,38 @@ nav.bottom-tabs {
   color: var(--text-muted);
   margin: 6px 0 0;
 }
+
+/* ===== 長條圖 / 圓餅圖切換 ===== */
+.chart-type-segmented { margin-bottom: 14px; }
+
+.pie-chart-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.pie-chart {
+  width: 180px;
+  height: 180px;
+  border-radius: 50%;
+  margin-bottom: 16px;
+  flex: none;
+}
+.pie-legend { width: 100%; }
+.pie-legend-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  font-size: 0.85rem;
+}
+.pie-legend-swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  flex: none;
+}
+.pie-legend-name { flex: 1; color: var(--text-main); }
+.pie-legend-value { color: var(--text-muted); }
 
 /* ===== 明細頁搜尋框 ===== */
 .record-search-input {
@@ -983,9 +1020,15 @@ nav.bottom-tabs {
     <div class="stats-total-card">
       <p class="stats-total-label">本月總支出</p>
       <p class="stats-total-value" id="statsTotalValue">$0</p>
+      <p class="stats-avg-daily" id="statsAvgDaily">平均每日 $0</p>
       <div id="budgetProgressWrap"></div>
     </div>
+    <div class="segmented chart-type-segmented" id="chartTypeSegmented">
+      <button class="segmented-btn active" data-type="bar">長條圖</button>
+      <button class="segmented-btn" data-type="pie">圓餅圖</button>
+    </div>
     <div id="statsBars"></div>
+    <div id="statsPie" style="display:none"></div>
   </section>
 
   <!-- ===== 分頁三:明細 ===== -->
@@ -1949,6 +1992,15 @@ document.getElementById("saveBudgetBtn").addEventListener("click", () => {
   renderStats(); // 立即反映在統計頁,不用切頁再切回來才更新
 });
 
+/*
+  ===== 圓餅圖用的色票 =====
+  跟分類圖示分開管理,單純給圓餅圖每個分類配色用,循環使用,
+  分類數量超過色票長度時會重複顏色,但實務上分類數不會多到那麼誇張。
+*/
+const PIE_COLORS = ["#4a90e2", "#e0a030", "#d9463d", "#4caf82", "#9b6bd9", "#e2678a", "#3dbfc2", "#c2a83d"];
+
+let chartType = localStorage.getItem("ledger_chart_type") || "bar";
+
 function computeCategoryTotals(records) {
   const totals = {};
   records.forEach(r => {
@@ -1960,29 +2012,19 @@ function computeCategoryTotals(records) {
     .sort((a, b) => b.amount - a.amount);
 }
 
-function renderStats() {
-  const monthDate = getStatsMonthDate();
-  document.getElementById("monthLabel").textContent =
-    `${monthDate.getFullYear()}年${monthDate.getMonth() + 1}月`;
-
-  // 下個月按鈕:不能超過目前這個月
+function computeAverageDaily(total, monthDate) {
   const now = new Date();
   const isCurrentMonth = monthDate.getFullYear() === now.getFullYear() && monthDate.getMonth() === now.getMonth();
-  document.getElementById("nextMonthBtn").disabled = isCurrentMonth;
+  // 本月看到今天為止的天數當分母;非本月(補記查詢過去月份)就用該月總天數
+  const daysElapsed = isCurrentMonth
+    ? now.getDate()
+    : new Date(monthDate.getFullYear(), monthDate.getMonth() + 1, 0).getDate();
+  return daysElapsed > 0 ? total / daysElapsed : 0;
+}
 
-  const monthRecords = loadRecords().filter(r => isInStatsMonth(r.ts, monthDate));
-  const total = monthRecords.reduce((sum, r) => sum + r.amount, 0);
-  document.getElementById("statsTotalValue").textContent = `$${total}`;
-  renderBudgetProgress(total);
-
-  const catTotals = computeCategoryTotals(monthRecords);
+function renderBarsView(catTotals) {
   const barsEl = document.getElementById("statsBars");
   barsEl.innerHTML = "";
-
-  if (catTotals.length === 0) {
-    barsEl.innerHTML = `<p class="empty-hint">這個月還沒有記帳紀錄</p>`;
-    return;
-  }
 
   const maxAmount = catTotals[0].amount;
 
@@ -2007,6 +2049,99 @@ function renderStats() {
     });
     barsEl.appendChild(row);
   });
+}
+
+function renderPieView(catTotals, total) {
+  const pieEl = document.getElementById("statsPie");
+  pieEl.innerHTML = "";
+
+  // 組出 conic-gradient 的色塊區間,依每個分類佔比切一段扇形
+  let cumulative = 0;
+  const stops = catTotals.map((item, i) => {
+    const startPercent = (cumulative / total) * 100;
+    cumulative += item.amount;
+    const endPercent = (cumulative / total) * 100;
+    return `${PIE_COLORS[i % PIE_COLORS.length]} ${startPercent}% ${endPercent}%`;
+  });
+
+  const wrap = document.createElement("div");
+  wrap.className = "pie-chart-wrap";
+
+  const pie = document.createElement("div");
+  pie.className = "pie-chart";
+  pie.style.background = `conic-gradient(${stops.join(", ")})`;
+  wrap.appendChild(pie);
+
+  const legend = document.createElement("div");
+  legend.className = "pie-legend";
+  catTotals.forEach((item, i) => {
+    const percent = Math.round((item.amount / total) * 100);
+    const row = document.createElement("div");
+    row.className = "pie-legend-row";
+    row.innerHTML = `
+      <span class="pie-legend-swatch" style="background:${PIE_COLORS[i % PIE_COLORS.length]}"></span>
+      <span class="pie-legend-name">${catNameOf(item.categoryId)}</span>
+      <span class="pie-legend-value">$${item.amount} · ${percent}%</span>
+    `;
+    // 點圖例 = 跟長條圖一樣,跳到明細頁只看這個分類這個月的紀錄
+    row.addEventListener("click", () => {
+      categoryFilter = item.categoryId;
+      filterMonthDate = getStatsMonthDate();
+      switchPage("list");
+    });
+    legend.appendChild(row);
+  });
+  wrap.appendChild(legend);
+
+  pieEl.appendChild(wrap);
+}
+
+function applyChartTypeVisibility() {
+  document.getElementById("statsBars").style.display = chartType === "bar" ? "" : "none";
+  document.getElementById("statsPie").style.display = chartType === "pie" ? "" : "none";
+  document.querySelectorAll("#chartTypeSegmented .segmented-btn").forEach(btn =>
+    btn.classList.toggle("active", btn.dataset.type === chartType)
+  );
+}
+
+document.getElementById("chartTypeSegmented").addEventListener("click", (e) => {
+  const btn = e.target.closest(".segmented-btn");
+  if (!btn) return;
+  chartType = btn.dataset.type;
+  localStorage.setItem("ledger_chart_type", chartType);
+  applyChartTypeVisibility();
+});
+
+function renderStats() {
+  const monthDate = getStatsMonthDate();
+  document.getElementById("monthLabel").textContent =
+    `${monthDate.getFullYear()}年${monthDate.getMonth() + 1}月`;
+
+  // 下個月按鈕:不能超過目前這個月
+  const now = new Date();
+  const isCurrentMonth = monthDate.getFullYear() === now.getFullYear() && monthDate.getMonth() === now.getMonth();
+  document.getElementById("nextMonthBtn").disabled = isCurrentMonth;
+
+  const monthRecords = loadRecords().filter(r => isInStatsMonth(r.ts, monthDate));
+  const total = monthRecords.reduce((sum, r) => sum + r.amount, 0);
+  document.getElementById("statsTotalValue").textContent = `$${total}`;
+  document.getElementById("statsAvgDaily").textContent = `平均每日 $${Math.round(computeAverageDaily(total, monthDate))}`;
+  renderBudgetProgress(total);
+
+  const catTotals = computeCategoryTotals(monthRecords);
+  const barsEl = document.getElementById("statsBars");
+  const pieEl = document.getElementById("statsPie");
+
+  if (catTotals.length === 0) {
+    barsEl.innerHTML = `<p class="empty-hint">這個月還沒有記帳紀錄</p>`;
+    pieEl.innerHTML = "";
+    applyChartTypeVisibility();
+    return;
+  }
+
+  renderBarsView(catTotals);
+  renderPieView(catTotals, total);
+  applyChartTypeVisibility();
 }
 
 document.getElementById("prevMonthBtn").addEventListener("click", () => {
