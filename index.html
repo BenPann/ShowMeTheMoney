@@ -263,7 +263,29 @@ nav.bottom-tabs {
 }
 
 /* ===== 日期選擇(補記過去帳目用)===== */
-.date-chip-row { margin-bottom: 8px; }
+.date-chip-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.entry-type-toggle {
+  display: flex;
+  background: var(--bg-app);
+  border-radius: 999px;
+  padding: 2px;
+  gap: 2px;
+}
+.entry-type-btn {
+  background: none;
+  border: none;
+  border-radius: 999px;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  padding: 4px 12px;
+}
+.entry-type-btn.active { background: var(--accent); color: #fff; }
+.entry-type-btn[data-type="income"].active { background: #4caf82; }
 .date-chip {
   background: var(--bg-app);
   border: 0.5px solid var(--border-subtle);
@@ -544,6 +566,7 @@ nav.bottom-tabs {
 .record-row-content.swiped { transform: translateX(-72px); }
 .record-cat { font-size: 0.95rem; }
 .record-amount { font-size: 0.95rem; font-weight: 500; }
+.record-amount.income { color: #4caf82; }
 .record-note {
   /* 用 text-muted 變數而不是寫死顏色,深色/淺色模式都會自動對比足夠 */
   color: var(--text-muted);
@@ -670,6 +693,32 @@ nav.bottom-tabs {
 }
 .pie-legend-name { flex: 1; color: var(--text-main); }
 .pie-legend-value { color: var(--text-muted); }
+
+/* ===== 一週花費熱力圖 ===== */
+.week-heatmap {
+  display: flex;
+  gap: 6px;
+}
+.heatmap-cell {
+  flex: 1;
+  aspect-ratio: 1;
+  border-radius: 8px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding-bottom: 4px;
+  box-sizing: border-box;
+  cursor: pointer;
+}
+.heatmap-cell.today {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.heatmap-day-label {
+  font-size: 0.7rem;
+  color: var(--text-main);
+  font-weight: 500;
+}
 
 /* ===== 明細頁搜尋框 ===== */
 .record-search-input {
@@ -1053,6 +1102,9 @@ nav.bottom-tabs {
     </div>
     <div id="statsBars"></div>
     <div id="statsPie" style="display:none"></div>
+
+    <p class="settings-row-label" style="margin:1.25rem 0 8px">本週花費</p>
+    <div class="week-heatmap" id="weekHeatmap"></div>
   </section>
 
   <!-- ===== 分頁三:明細 ===== -->
@@ -1193,6 +1245,10 @@ nav.bottom-tabs {
     <!-- 日期選擇:預設「今天」,平常不用點,補記過去帳目時才點開選日期 -->
     <div class="date-chip-row">
       <button class="date-chip" id="dateChipBtn">今天</button>
+      <div class="entry-type-toggle" id="entryTypeToggle">
+        <button class="entry-type-btn active" data-type="expense">支出</button>
+        <button class="entry-type-btn" data-type="income">收入</button>
+      </div>
     </div>
     <div class="date-options-row" id="dateOptionsRow" style="display:none">
       <button class="date-option-btn" data-offset="0">今天</button>
@@ -1456,7 +1512,7 @@ function toLocalDateString(date) {
   return `${y}-${m}-${d}`;
 }
 
-function addRecord(amount, categoryId, customDate) {
+function addRecord(amount, categoryId, customDate, entryType) {
   const now = new Date();
   let effectiveDate = now;
   if (customDate) {
@@ -1471,6 +1527,7 @@ function addRecord(amount, categoryId, customDate) {
     date: toLocalDateString(effectiveDate),
     amount: amount,
     categoryId: categoryId,
+    type: entryType === "income" ? "income" : "expense", // 預設支出,舊資料沒有這個欄位時一律視為支出
     note: ""
   };
   saveRecord(record);
@@ -1505,6 +1562,7 @@ const confirmBtn = document.getElementById("confirmBtn");
 let currentCategory = null; // 目前正在記帳的分類
 let inputBuffer = "";        // 使用者正在輸入的數字字串
 let selectedRecordDate = null; // null = 今天;有值時是補記用的日期(Date物件)
+let currentEntryType = "expense"; // 這一筆是支出還是收入,預設支出
 
 function findCategory(id) {
   return categories.find(c => c.id === id);
@@ -1527,13 +1585,28 @@ function updateDateChipLabel() {
   else chip.textContent = `${sel.getMonth() + 1}/${sel.getDate()}`;
 }
 
+function updateEntryTypeUI() {
+  document.querySelectorAll("#entryTypeToggle .entry-type-btn").forEach(btn =>
+    btn.classList.toggle("active", btn.dataset.type === currentEntryType)
+  );
+}
+
+document.getElementById("entryTypeToggle").addEventListener("click", (e) => {
+  const btn = e.target.closest(".entry-type-btn");
+  if (!btn) return;
+  currentEntryType = btn.dataset.type;
+  updateEntryTypeUI();
+});
+
 function openAmountModal(categoryId) {
   currentCategory = findCategory(categoryId);
   inputBuffer = "";
   selectedRecordDate = null; // 每次重新點開分類,預設都回到「今天」,避免不小心延用上一筆的補記日期
+  currentEntryType = "expense"; // 每次重新點開分類,預設都回到「支出」
   amountSheetCat.textContent = currentCategory.name;
   updateAmountDisplay();
   updateDateChipLabel();
+  updateEntryTypeUI();
   document.getElementById("dateOptionsRow").style.display = "none";
   amountModal.classList.add("open");
 }
@@ -1543,6 +1616,7 @@ function closeAmountModal() {
   currentCategory = null;
   inputBuffer = "";
   selectedRecordDate = null;
+  currentEntryType = "expense";
 }
 
 function updateAmountDisplay() {
@@ -1577,9 +1651,10 @@ function incrementAmount(amount) {
 
 function submitRecord(amount) {
   if (!currentCategory) return;
-  addRecord(amount, currentCategory.id, selectedRecordDate);
+  addRecord(amount, currentCategory.id, selectedRecordDate, currentEntryType);
   const dateNote = selectedRecordDate ? `(${document.getElementById("dateChipBtn").textContent})` : "";
-  showToast(`已記錄 ${currentCategory.name} $${amount}${dateNote}`);
+  const typeLabel = currentEntryType === "income" ? "收入" : "支出";
+  showToast(`已記錄${typeLabel} ${currentCategory.name} $${amount}${dateNote}`);
   closeAmountModal();
 }
 
@@ -1660,7 +1735,7 @@ function renderCategoryGrid() {
         longPressFired = true;
         const last = findLastRecordByCategory(cat.id);
         if (last) {
-          addRecord(last.amount, cat.id);
+          addRecord(last.amount, cat.id, null, last.type);
           showToast(`已複製上一筆 ${cat.name} $${last.amount}`);
         } else {
           openAmountModal(cat.id); // 沒有歷史紀錄時,退回一般輸入流程
@@ -1739,7 +1814,8 @@ function groupByDate(records) {
       groups.push(map[r.date]);
     }
     map[r.date].records.push(r);
-    map[r.date].total += r.amount;
+    // 小計是「淨支出」:支出用加的,收入用減的,才能反映當天實際淨花費
+    map[r.date].total += (r.type === "income" ? -r.amount : r.amount);
   });
   return groups;
 }
@@ -1865,10 +1941,14 @@ function renderRecordList() {
       const noteHtml = r.note
         ? `<span class="record-note">· ${escapeHtml(r.note)}</span>`
         : "";
+      const isIncome = r.type === "income";
+      const amountHtml = isIncome
+        ? `<span class="record-amount income">+$${r.amount}</span>`
+        : `<span class="record-amount">$${r.amount}</span>`;
       row.innerHTML = `
         <div class="record-row-content">
           <span class="record-cat">${catNameOf(r.categoryId)}${noteHtml}</span>
-          <span class="record-amount">$${r.amount}</span>
+          ${amountHtml}
         </div>
         <button class="record-delete-btn" aria-label="刪除">${iconSvgTag("trash")}</button>
       `;
@@ -2136,6 +2216,52 @@ document.getElementById("chartTypeSegmented").addEventListener("click", (e) => {
   applyChartTypeVisibility();
 });
 
+/*
+  ===== 一週花費熱力圖 =====
+  固定顯示「本週」(週一到週日),跟月份切換無關,只看支出、不看收入。
+*/
+function computeWeekDailyTotals() {
+  const now = new Date();
+  const day = now.getDay() === 0 ? 7 : now.getDay();
+  const monday = new Date(now);
+  monday.setHours(0, 0, 0, 0);
+  monday.setDate(now.getDate() - (day - 1));
+
+  const expenseRecords = loadRecords().filter(r => r.type !== "income");
+  const totals = [];
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(monday);
+    d.setDate(monday.getDate() + i);
+    const dateStr = toLocalDateString(d);
+    const amount = expenseRecords
+      .filter(r => r.date === dateStr)
+      .reduce((sum, r) => sum + r.amount, 0);
+    totals.push({ date: d, dateStr, amount });
+  }
+  return totals;
+}
+
+function renderWeekHeatmap() {
+  const wrap = document.getElementById("weekHeatmap");
+  const data = computeWeekDailyTotals();
+  const maxAmount = Math.max(...data.map(d => d.amount), 1);
+  const labels = ["一", "二", "三", "四", "五", "六", "日"];
+  const todayStr = toLocalDateString(new Date());
+
+  wrap.innerHTML = "";
+  data.forEach((d, i) => {
+    const intensity = d.amount / maxAmount; // 0(沒花錢) ~ 1(這週花最多的一天)
+    const cell = document.createElement("div");
+    cell.className = "heatmap-cell" + (d.dateStr === todayStr ? " today" : "");
+    cell.style.background = `rgba(74,144,226,${0.12 + intensity * 0.68})`;
+    cell.innerHTML = `<span class="heatmap-day-label">${labels[i]}</span>`;
+    cell.addEventListener("click", () => {
+      showToast(`週${labels[i]}(${d.dateStr}):$${d.amount}`);
+    });
+    wrap.appendChild(cell);
+  });
+}
+
 function renderStats() {
   const monthDate = getStatsMonthDate();
   document.getElementById("monthLabel").textContent =
@@ -2146,7 +2272,8 @@ function renderStats() {
   const isCurrentMonth = monthDate.getFullYear() === now.getFullYear() && monthDate.getMonth() === now.getMonth();
   document.getElementById("nextMonthBtn").disabled = isCurrentMonth;
 
-  const monthRecords = loadRecords().filter(r => isInStatsMonth(r.ts, monthDate));
+  // 統計頁只看「支出」,收入不計入花費統計(避免退款/收入讓數字失真)
+  const monthRecords = loadRecords().filter(r => isInStatsMonth(r.ts, monthDate) && r.type !== "income");
   const total = monthRecords.reduce((sum, r) => sum + r.amount, 0);
   document.getElementById("statsTotalValue").textContent = `$${total}`;
   document.getElementById("statsAvgDaily").textContent = `平均每日 $${Math.round(computeAverageDaily(total, monthDate))}`;
@@ -2160,12 +2287,14 @@ function renderStats() {
     barsEl.innerHTML = `<p class="empty-hint">這個月還沒有記帳紀錄</p>`;
     pieEl.innerHTML = "";
     applyChartTypeVisibility();
+    renderWeekHeatmap();
     return;
   }
 
   renderBarsView(catTotals);
   renderPieView(catTotals, total);
   applyChartTypeVisibility();
+  renderWeekHeatmap();
 }
 
 document.getElementById("prevMonthBtn").addEventListener("click", () => {
@@ -2233,6 +2362,11 @@ function saveEditCategory(id, newName) {
 function deleteCategory(id) {
   if (categories.length <= 1) {
     showToast("至少要保留一個分類");
+    return;
+  }
+  const hasRecords = loadRecords().some(r => r.categoryId === id);
+  if (hasRecords) {
+    showToast("這個分類還有記帳紀錄,無法刪除");
     return;
   }
   if (!confirm(`確定要刪除「${catNameOf(id)}」這個分類嗎?`)) return;
