@@ -171,6 +171,7 @@ nav.bottom-tabs {
   bottom: 0;
   left: 0;
   right: 0;
+  z-index: 10; /* 明確設定,確保一定疊在明細列表這類內容之上,不會被蓋住而點不到 */
   background: var(--card-surface);
   backdrop-filter: var(--card-blur);
   -webkit-backdrop-filter: var(--card-blur);
