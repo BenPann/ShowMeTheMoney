@@ -38,6 +38,16 @@
         if (bgImage) {
           document.documentElement.style.setProperty("--custom-bg-image", 'url("' + bgImage + '")');
         }
+        // 自動對比度遮罩:用存好的照片亮度 + 目前主題現算深淺
+        var brightnessRaw = localStorage.getItem("ledger_bg_brightness::" + session.email);
+        if (brightnessRaw !== null) {
+          var brightness = parseFloat(brightnessRaw);
+          var normalized = brightness / 255;
+          var factor = theme === "dark" ? normalized : (1 - normalized);
+          var overlayAlpha = 0.15 + factor * 0.4;
+          var overlayRgb = theme === "dark" ? "0,0,0" : "255,255,255";
+          document.documentElement.style.setProperty("--custom-bg-overlay", "rgba(" + overlayRgb + "," + overlayAlpha + ")");
+        }
       }
     }
   } catch (e) { /* localStorage 不可用時,直接使用預設樣式即可 */ }
@@ -108,6 +118,17 @@ body {
   background-size: cover;
   background-position: center;
   background-repeat: no-repeat;
+  pointer-events: none;
+}
+
+/* 自動對比度遮罩:疊在背景圖片上方、實際內容下方(appRoot 是 z-index:1,這層維持 0,
+   靠 DOM 順序排在 bgImageLayer 後面,自然疊在圖片上面)。
+   顏色/深淺由 JS 依照片亮度自動計算,套用在 --custom-bg-overlay 這個變數上。 */
+#bgOverlayLayer {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  background: var(--custom-bg-overlay, transparent);
   pointer-events: none;
 }
 
@@ -967,6 +988,9 @@ nav.bottom-tabs {
 <!-- ===== 背景圖片獨立圖層:固定貼在螢幕上,大小永遠依螢幕viewport計算,
      不會因為各頁內容高度不同而跟著被拉伸或縮放 ===== -->
 <div id="bgImageLayer"></div>
+
+<!-- ===== 自動對比度遮罩:依照片亮度自動算出深淺,確保文字在任何照片上都看得清楚 ===== -->
+<div id="bgOverlayLayer"></div>
 
 <!-- ===== 登入 / 註冊畫面:未登入時顯示,蓋住整個App ===== -->
 <div class="auth-screen" id="authScreen">
@@ -2349,6 +2373,7 @@ function applyTheme(value) {
     btn.classList.toggle("active", btn.dataset.value === value)
   );
   applyCardStyle(); // 「跟隨主題」的卡片樣式要跟著重新計算
+  applyBackgroundOverlay(); // 對比度遮罩依新主題 + 已存的照片亮度重新計算
 }
 
 function applyFontScale(value) {
@@ -2491,6 +2516,7 @@ function enterApp(email) {
 
   // 背景圖片依帳號區隔,登入後套用「這個帳號」自己設定的背景(沒設定就沒有)
   applyBackgroundImage(localStorage.getItem(bgImageKey()));
+  applyBackgroundOverlay();
 
   renderCategoryGrid();
   renderQuickAmounts();
@@ -2500,6 +2526,7 @@ function enterApp(email) {
 function showAuthScreen() {
   currentEmail = null;
   applyBackgroundImage(null); // 避免登出後,登入畫面還殘留上一個帳號的背景圖
+  applyBackgroundOverlay();
   document.getElementById("appRoot").style.display = "none";
   document.getElementById("authScreen").style.display = "flex";
   document.getElementById("loginEmail").value = "";
@@ -2776,6 +2803,49 @@ function applyBackgroundImage(dataUrl) {
   );
 }
 
+/*
+  ===== 自動對比度遮罩 =====
+  上傳照片時分析平均亮度並存起來,套用遮罩時才依「目前的主題」現算深淺,
+  這樣切換深色/淺色模式時,遮罩會用正確的公式重新計算,而不是直接沿用舊主題算出的深淺。
+  深色模式:文字是淺色的,照片越亮越需要「深色遮罩」壓暗背景才夠對比。
+  淺色模式:文字是深色的,照片越暗越需要「淺色遮罩」提亮背景才夠對比。
+*/
+function bgBrightnessKey() { return `ledger_bg_brightness::${currentEmail}`; }
+
+function computeImageBrightness(canvas) {
+  const ctx = canvas.getContext("2d");
+  const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  let sum = 0;
+  let count = 0;
+  const step = 4 * 20; // 每 20 個像素取樣一次,不用整張圖每個像素都算,兼顧效能
+  for (let i = 0; i < data.length; i += step) {
+    sum += 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+    count++;
+  }
+  return count > 0 ? sum / count : 128; // 0(全黑) ~ 255(全白)
+}
+
+function computeOverlayAlpha(brightness, isDarkTheme) {
+  const normalized = brightness / 255; // 0(暗) ~ 1(亮)
+  const factor = isDarkTheme ? normalized : (1 - normalized);
+  // 對應到 0.15 ~ 0.55 的透明度,保底一定有基本對比,但也不會整張照片被蓋到看不出來
+  return 0.15 + factor * 0.4;
+}
+
+// 依目前登入帳號存的照片亮度 + 目前的深色/淺色主題,現算遮罩並套用
+function applyBackgroundOverlay() {
+  const raw = localStorage.getItem(bgBrightnessKey());
+  if (raw === null) {
+    document.documentElement.style.setProperty("--custom-bg-overlay", "transparent");
+    return;
+  }
+  const brightness = parseFloat(raw);
+  const isDark = document.documentElement.getAttribute("data-theme") === "dark";
+  const alpha = computeOverlayAlpha(brightness, isDark);
+  const rgb = isDark ? "0,0,0" : "255,255,255";
+  document.documentElement.style.setProperty("--custom-bg-overlay", `rgba(${rgb},${alpha})`);
+}
+
 function renderBgSettingsUI() {
   const stored = localStorage.getItem(bgImageKey());
   const preview = document.getElementById("bgPreviewWrap");
@@ -2786,7 +2856,7 @@ function renderBgSettingsUI() {
     preview.innerHTML = `<img src="${stored}" class="bg-preview-img" alt="目前背景圖片">`;
     removeBtn.style.display = "";
   } else {
-    preview.innerHTML = `<p class="gist-hint">尚未設定背景圖片,套用後會以 cover 模式自動填滿畫面</p>`;
+    preview.innerHTML = `<p class="gist-hint">尚未設定背景圖片,套用後會以 cover 模式自動填滿畫面,並自動依照片亮度加上適當的對比度遮罩</p>`;
     removeBtn.style.display = "none";
   }
 }
@@ -2813,11 +2883,16 @@ function handleBgImageFile(file) {
       canvas.getContext("2d").drawImage(img, 0, 0, width, height);
       const dataUrl = canvas.toDataURL("image/jpeg", 0.75);
 
+      // 用同一張畫好的 canvas 順便分析亮度,不用再重新讀一次圖片
+      const brightness = computeImageBrightness(canvas);
+
       try {
         localStorage.setItem(bgImageKey(), dataUrl);
+        localStorage.setItem(bgBrightnessKey(), String(brightness));
         applyBackgroundImage(dataUrl);
+        applyBackgroundOverlay();
         renderBgSettingsUI();
-        showToast("背景圖片已套用");
+        showToast("背景圖片已套用,已自動調整對比度");
       } catch (err) {
         // localStorage 空間有限,壓縮後仍太大時會在這裡失敗,不讓整個 App 掛掉
         showToast("圖片太大,無法儲存,請換一張較小的圖片再試一次");
@@ -2830,7 +2905,9 @@ function handleBgImageFile(file) {
 
 function removeBgImage() {
   localStorage.removeItem(bgImageKey());
+  localStorage.removeItem(bgBrightnessKey());
   applyBackgroundImage(null);
+  applyBackgroundOverlay();
   renderBgSettingsUI();
   showToast("已移除背景圖片");
 }
