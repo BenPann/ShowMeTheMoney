@@ -122,7 +122,7 @@ body {
 main.app-content {
   flex: 1;
   padding: 1rem;
-  padding-bottom: 90px; /* 留空間給底部分頁列,避免內容被蓋住 */
+  padding-bottom: calc(96px + env(safe-area-inset-bottom)); /* 跟底部導覽列的高度一起算,避免內容被蓋住 */
   overflow-y: auto;
 }
 
