@@ -147,6 +147,7 @@ main.app-content {
   padding: 1rem;
   padding-bottom: calc(96px + env(safe-area-inset-bottom)); /* 跟底部導覽列的高度一起算,避免內容被蓋住 */
   overflow-y: auto;
+  overflow-x: hidden; /* 保險:避免子元件不小心撐寬時,整頁變成可以左右拖動 */
 }
 
 .page-title {
@@ -1016,6 +1017,7 @@ nav.bottom-tabs {
 }
 .segmented-btn {
   flex: 1;
+  min-width: 0;
   background: none;
   border: none;
   color: var(--text-muted);
