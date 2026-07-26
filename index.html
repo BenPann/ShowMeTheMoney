@@ -374,19 +374,48 @@ nav.bottom-tabs {
   opacity: 0.4;
 }
 
-/* ===== 備註輸入框 ===== */
-.note-textarea {
+/* ===== 備註輸入框(單行)===== */
+.note-text-input {
   width: 100%;
-  min-height: 90px;
+  height: 42px;
+  box-sizing: border-box;
   background: var(--bg-card);
   border: 0.5px solid var(--border-subtle);
   border-radius: 10px;
   color: var(--text-main);
-  padding: 0.75rem 1rem;
+  padding: 0 1rem;
   font-size: 0.95rem;
   font-family: inherit;
-  resize: none;
   margin-bottom: 12px;
+}
+
+/* ===== 常用備註快捷區塊 ===== */
+.recent-notes-wrap {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+  max-height: 96px;
+  overflow-y: auto;
+}
+.recent-notes-wrap.expanded { max-height: 200px; }
+.recent-note-chip {
+  background: var(--bg-app);
+  border: none;
+  border-radius: 999px;
+  color: var(--text-main);
+  font-size: 0.8rem;
+  padding: 5px 12px;
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.recent-note-chip:active { background: var(--bg-card-hover); }
+.recent-note-chip.more {
+  color: var(--text-muted);
+  font-weight: 700;
+  padding: 5px 14px;
 }
 
 /* ===== 分類圖示選擇 ===== */
@@ -1292,7 +1321,8 @@ nav.bottom-tabs {
       <span class="amount-sheet-cat">備註</span>
       <button class="amount-sheet-close" id="noteModalClose" aria-label="關閉">✕</button>
     </div>
-    <textarea id="noteInput" class="note-textarea" maxlength="100" placeholder="輸入備註,例如:朋友聚餐"></textarea>
+    <div class="recent-notes-wrap" id="recentNotesWrap"></div>
+    <input type="text" id="noteInput" class="note-text-input" maxlength="100" placeholder="輸入備註,例如:朋友聚餐">
     <button class="keypad-btn confirm" id="noteSaveBtn" style="width:100%">儲存</button>
   </div>
 </div>
@@ -1855,11 +1885,70 @@ const noteModal = document.getElementById("noteModal");
 const noteInput = document.getElementById("noteInput");
 let editingNoteRecordId = null;
 
+let showingAllNotes = false;       // 是否已展開顯示全部歷史備註(而不是只有前15個)
+let currentRecentNotesList = [];   // 目前畫面上顯示的那份備註清單,點擊時用索引對照
+
+// 依時間新到舊,收集所有不重複的歷史備註文字
+function computeAllUniqueNotes() {
+  const sorted = [...loadRecords()].sort((a, b) => b.ts - a.ts);
+  const seen = new Set();
+  const notes = [];
+  sorted.forEach(r => {
+    const note = (r.note || "").trim();
+    if (note && !seen.has(note)) {
+      seen.add(note);
+      notes.push(note);
+    }
+  });
+  return notes;
+}
+
+function renderRecentNotes() {
+  const wrap = document.getElementById("recentNotesWrap");
+  const all = computeAllUniqueNotes();
+
+  if (all.length === 0) {
+    wrap.innerHTML = "";
+    return;
+  }
+
+  const displayList = showingAllNotes ? all : all.slice(0, 15);
+  currentRecentNotesList = displayList;
+
+  const chipsHtml = displayList
+    .map((note, i) => `<button type="button" class="recent-note-chip" data-index="${i}">${escapeHtml(note)}</button>`)
+    .join("");
+  // 超過15個才需要「...」按鈕,點了展開顯示全部歷史備註
+  const moreHtml = (!showingAllNotes && all.length > 15)
+    ? `<button type="button" class="recent-note-chip more" id="showAllNotesBtn">…</button>`
+    : "";
+
+  wrap.classList.toggle("expanded", showingAllNotes);
+  wrap.innerHTML = chipsHtml + moreHtml;
+
+  wrap.querySelectorAll(".recent-note-chip:not(.more)").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const idx = parseInt(btn.dataset.index, 10);
+      noteInput.value = currentRecentNotesList[idx];
+    });
+  });
+
+  const showAllBtn = document.getElementById("showAllNotesBtn");
+  if (showAllBtn) {
+    showAllBtn.addEventListener("click", () => {
+      showingAllNotes = true;
+      renderRecentNotes();
+    });
+  }
+}
+
 function openNoteModal(id) {
   const record = loadRecords().find(r => r.id === id);
   if (!record) return;
   editingNoteRecordId = id;
   noteInput.value = record.note || "";
+  showingAllNotes = false; // 每次打開都重新收合,只顯示最近15個
+  renderRecentNotes();
   noteModal.classList.add("open");
   noteInput.focus();
 }
