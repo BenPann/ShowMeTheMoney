@@ -3149,6 +3149,19 @@ document.getElementById("bgImageInput").addEventListener("change", (e) => {
   e.target.value = ""; // 清空,下次選同一張檔案也能觸發 change
 });
 document.getElementById("removeBgBtn").addEventListener("click", removeBgImage);
+
+/*
+  ===== Service Worker 註冊 =====
+  用 network-first 策略確保每次開啟 App 都優先抓取 GitHub Pages 上的最新版本,
+  解決「上傳新版後,手機上的 App 卻還是舊畫面」的快取問題。
+*/
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("sw.js").catch(() => {
+      // 註冊失敗(例如舊瀏覽器不支援)不影響 App 其他功能正常運作
+    });
+  });
+}
 </script>
 
 </body>
