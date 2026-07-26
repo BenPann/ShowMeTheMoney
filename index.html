@@ -765,6 +765,44 @@ nav.bottom-tabs {
   box-sizing: border-box;
 }
 
+.list-view-segmented { margin-bottom: 0.75rem; }
+
+/* ===== 明細頁月曆檢視 ===== */
+.calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+  margin-top: 4px;
+}
+.calendar-weekday-label {
+  text-align: center;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  padding: 4px 0;
+}
+.calendar-day-cell {
+  aspect-ratio: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  background: none;
+  border: none;
+  border-radius: 8px;
+  color: var(--text-main);
+  font-size: 0.85rem;
+}
+.calendar-day-cell:active { background: var(--bg-card-hover); }
+.calendar-day-cell.empty { visibility: hidden; }
+.calendar-day-cell.today { background: var(--card-surface); font-weight: 700; }
+.calendar-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
 /* ===== 統計頁:分類長條圖(水平長條,適合窄螢幕) ===== */
 .stat-bar-row {
   margin-bottom: 14px;
@@ -1145,13 +1183,32 @@ nav.bottom-tabs {
   <section data-page="list">
     <p class="page-title">消費明細</p>
     <input type="text" id="recordSearchInput" class="record-search-input" placeholder="搜尋備註...">
-    <div class="filter-chips" id="filterChips">
-      <button class="filter-chip active" data-filter="all">全部</button>
-      <button class="filter-chip" data-filter="month">本月</button>
-      <button class="filter-chip" data-filter="week">本週</button>
+
+    <div class="segmented list-view-segmented" id="listViewSegmented">
+      <button class="segmented-btn active" data-view="list">列表</button>
+      <button class="segmented-btn" data-view="calendar">月曆</button>
     </div>
-    <div id="categoryFilterTag"></div>
-    <div id="recordListContainer"></div>
+
+    <!-- 列表檢視:原本的篩選膠囊 + 依日期分組列表 -->
+    <div id="recordListView">
+      <div class="filter-chips" id="filterChips">
+        <button class="filter-chip active" data-filter="all">全部</button>
+        <button class="filter-chip" data-filter="month">本月</button>
+        <button class="filter-chip" data-filter="week">本週</button>
+      </div>
+      <div id="categoryFilterTag"></div>
+      <div id="recordListContainer"></div>
+    </div>
+
+    <!-- 月曆檢視:哪幾天有記錄用藍點標示,點某一天直接篩選出那天的明細 -->
+    <div id="recordCalendarView" style="display:none">
+      <div class="month-nav">
+        <button class="month-nav-btn" id="calendarPrevBtn" aria-label="上個月">‹</button>
+        <span id="calendarMonthLabel">2026年7月</span>
+        <button class="month-nav-btn" id="calendarNextBtn" aria-label="下個月">›</button>
+      </div>
+      <div class="calendar-grid" id="calendarGrid"></div>
+    </div>
   </section>
 
   <!-- ===== 分頁四:分類管理 ===== -->
@@ -1381,7 +1438,10 @@ function switchPage(target) {
   pages.forEach(p => p.classList.toggle("active", p.dataset.page === target));
   tabs.forEach(t => t.classList.toggle("active", t.dataset.target === target));
   // 每次切到明細頁都重新讀取資料,確保剛記的帳馬上看得到
-  if (target === "list") renderRecordList();
+  if (target === "list") {
+    renderRecordList();
+    if (listViewMode === "calendar") renderCalendarView();
+  }
   if (target === "stats") renderStats();
   if (target === "categories") renderCategoryManageList();
   if (target === "settings") { renderGistSyncUI(); renderBgSettingsUI(); renderBudgetSettingsUI(); }
@@ -1801,6 +1861,7 @@ let currentFilter = "all";
 let categoryFilter = null;   // 從統計頁點長條圖進來時,會設定這個值
 let filterMonthDate = null;  // 從統計頁點長條圖進來時,鎖定當時檢視的月份
 let searchQuery = "";        // 明細頁搜尋框的關鍵字
+let selectedDayFilter = null; // 從明細頁月曆檢視點某一天進來時,鎖定那一天(YYYY-MM-DD字串)
 
 function isInMonth(ts, now) {
   const d = new Date(ts * 1000);
@@ -1827,6 +1888,9 @@ function filterRecords(records) {
       return note.includes(q) || catName.includes(q);
     });
   }
+
+  // 從月曆點某一天進來的篩選,優先權最高(比月份鎖定、篩選膠囊都優先)
+  if (selectedDayFilter) return result.filter(r => r.date === selectedDayFilter);
 
   // 從統計頁點進來的月份鎖定,優先於一般的全部/本月/本週篩選膠囊
   if (filterMonthDate) return result.filter(r => isInStatsMonth(r.ts, filterMonthDate));
@@ -1980,31 +2044,133 @@ function renderCategoryFilterTag() {
   const el = document.getElementById("categoryFilterTag");
   const chipsEl = document.getElementById("filterChips");
 
-  if (!categoryFilter) {
+  if (!categoryFilter && !selectedDayFilter) {
     el.innerHTML = "";
     chipsEl.style.display = "";
     return;
   }
 
-  // 有月份鎖定時,一般的全部/本月/本週膠囊先隱藏,避免看起來像可以疊加篩選
-  chipsEl.style.display = filterMonthDate ? "none" : "";
+  // 月份鎖定或單日篩選這種「不可疊加」的狀態,才隱藏一般的全部/本月/本週膠囊;
+  // 單純的分類篩選仍然可以疊加膠囊使用(維持原本的行為)
+  chipsEl.style.display = (filterMonthDate || selectedDayFilter) ? "none" : "";
 
-  const monthText = filterMonthDate
-    ? ` · ${filterMonthDate.getFullYear()}年${filterMonthDate.getMonth() + 1}月`
-    : "";
+  let labelText;
+  if (selectedDayFilter) {
+    labelText = `篩選:${selectedDayFilter}${categoryFilter ? ` · ${catNameOf(categoryFilter)}` : ""}`;
+  } else {
+    const monthText = filterMonthDate
+      ? ` · ${filterMonthDate.getFullYear()}年${filterMonthDate.getMonth() + 1}月`
+      : "";
+    labelText = `篩選:${catNameOf(categoryFilter)}${monthText}`;
+  }
 
   el.innerHTML = `
     <span class="category-filter-tag">
-      篩選:${catNameOf(categoryFilter)}${monthText}
-      <button id="clearCategoryFilterBtn" aria-label="清除分類篩選">✕</button>
+      ${labelText}
+      <button id="clearCategoryFilterBtn" aria-label="清除篩選">✕</button>
     </span>
   `;
   document.getElementById("clearCategoryFilterBtn").addEventListener("click", () => {
     categoryFilter = null;
     filterMonthDate = null;
+    selectedDayFilter = null;
     renderRecordList();
   });
 }
+
+/*
+  ===== 明細頁:列表 / 月曆 檢視切換 =====
+*/
+let listViewMode = "list"; // "list" | "calendar"
+let calendarMonthOffset = 0; // 0 = 本月,-1 = 上個月,以此類推(月曆檢視自己的月份狀態,跟統計頁互不影響)
+
+function applyListViewMode() {
+  document.getElementById("recordListView").style.display = listViewMode === "list" ? "" : "none";
+  document.getElementById("recordCalendarView").style.display = listViewMode === "calendar" ? "" : "none";
+  document.querySelectorAll("#listViewSegmented .segmented-btn").forEach(btn =>
+    btn.classList.toggle("active", btn.dataset.view === listViewMode)
+  );
+}
+
+document.getElementById("listViewSegmented").addEventListener("click", (e) => {
+  const btn = e.target.closest(".segmented-btn");
+  if (!btn) return;
+  listViewMode = btn.dataset.view;
+  applyListViewMode();
+  if (listViewMode === "calendar") renderCalendarView();
+});
+
+function getCalendarMonthDate() {
+  const d = new Date();
+  d.setDate(1); // 避免跨月時日期溢位
+  d.setMonth(d.getMonth() + calendarMonthOffset);
+  return d;
+}
+
+function renderCalendarView() {
+  const monthDate = getCalendarMonthDate();
+  document.getElementById("calendarMonthLabel").textContent =
+    `${monthDate.getFullYear()}年${monthDate.getMonth() + 1}月`;
+
+  const now = new Date();
+  const isCurrentMonth = monthDate.getFullYear() === now.getFullYear() && monthDate.getMonth() === now.getMonth();
+  document.getElementById("calendarNextBtn").disabled = isCurrentMonth;
+
+  const year = monthDate.getFullYear();
+  const month = monthDate.getMonth();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const startWeekday = new Date(year, month, 1).getDay(); // 0=日 ... 6=六
+
+  // 這個月哪些日期有紀錄(不分收入/支出,只要有記錄就標藍點)
+  const recordDates = new Set(loadRecords().map(r => r.date));
+  const todayStr = toLocalDateString(now);
+
+  const grid = document.getElementById("calendarGrid");
+  grid.innerHTML = "";
+
+  ["日", "一", "二", "三", "四", "五", "六"].forEach(label => {
+    const el = document.createElement("div");
+    el.className = "calendar-weekday-label";
+    el.textContent = label;
+    grid.appendChild(el);
+  });
+
+  for (let i = 0; i < startWeekday; i++) {
+    const blank = document.createElement("div");
+    blank.className = "calendar-day-cell empty";
+    grid.appendChild(blank);
+  }
+
+  for (let day = 1; day <= daysInMonth; day++) {
+    const dateStr = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    const hasRecord = recordDates.has(dateStr);
+    const cell = document.createElement("button");
+    cell.type = "button";
+    cell.className = "calendar-day-cell" + (dateStr === todayStr ? " today" : "");
+    cell.innerHTML = `<span>${day}</span>${hasRecord ? '<span class="calendar-dot"></span>' : ""}`;
+    // 點某一天 = 篩選出那一天的明細,並自動切回列表檢視顯示結果
+    cell.addEventListener("click", () => {
+      selectedDayFilter = dateStr;
+      categoryFilter = null;
+      filterMonthDate = null;
+      listViewMode = "list";
+      applyListViewMode();
+      renderRecordList();
+    });
+    grid.appendChild(cell);
+  }
+}
+
+document.getElementById("calendarPrevBtn").addEventListener("click", () => {
+  calendarMonthOffset -= 1;
+  renderCalendarView();
+});
+document.getElementById("calendarNextBtn").addEventListener("click", () => {
+  if (calendarMonthOffset < 0) {
+    calendarMonthOffset += 1;
+    renderCalendarView();
+  }
+});
 
 function renderRecordList() {
   renderCategoryFilterTag();
@@ -2094,6 +2260,7 @@ document.getElementById("filterChips").addEventListener("click", (e) => {
   currentFilter = chip.dataset.filter;
   categoryFilter = null;
   filterMonthDate = null;
+  selectedDayFilter = null;
   document.querySelectorAll(".filter-chip").forEach(c => c.classList.toggle("active", c === chip));
   renderRecordList();
 });
@@ -2243,6 +2410,9 @@ function renderBarsView(catTotals) {
     row.addEventListener("click", () => {
       categoryFilter = item.categoryId;
       filterMonthDate = getStatsMonthDate();
+      selectedDayFilter = null;
+      listViewMode = "list";
+      applyListViewMode();
       switchPage("list");
     });
     barsEl.appendChild(row);
@@ -2285,6 +2455,9 @@ function renderPieView(catTotals, total) {
     row.addEventListener("click", () => {
       categoryFilter = item.categoryId;
       filterMonthDate = getStatsMonthDate();
+      selectedDayFilter = null;
+      listViewMode = "list";
+      applyListViewMode();
       switchPage("list");
     });
     legend.appendChild(row);
