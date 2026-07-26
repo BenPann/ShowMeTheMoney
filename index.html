@@ -785,25 +785,36 @@ nav.bottom-tabs {
 
 /* ===== 明細頁月曆檢視 ===== */
 .calendar-grid {
+  width: 100%;
+  box-sizing: border-box;
   display: grid;
-  grid-template-columns: repeat(7, 1fr);
+  grid-template-columns: repeat(7, minmax(0, 1fr));
   gap: 4px;
   margin-top: 4px;
 }
 .calendar-weekday-label {
+  box-sizing: border-box;
   text-align: center;
   font-size: 0.75rem;
   color: var(--text-muted);
   padding: 4px 0;
+  background: var(--card-surface);
+  backdrop-filter: var(--card-blur);
+  -webkit-backdrop-filter: var(--card-blur);
+  border-radius: 6px;
 }
 .calendar-day-cell {
   aspect-ratio: 1;
+  box-sizing: border-box;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 3px;
-  background: none;
+  background: var(--card-surface);
+  backdrop-filter: var(--card-blur);
+  -webkit-backdrop-filter: var(--card-blur);
   border: none;
   border-radius: 8px;
   color: var(--text-main);
@@ -811,12 +822,19 @@ nav.bottom-tabs {
 }
 .calendar-day-cell:active { background: var(--bg-card-hover); }
 .calendar-day-cell.empty { visibility: hidden; }
-.calendar-day-cell.today { background: var(--card-surface); font-weight: 700; }
+/* 今天用藍色玻璃背景區隔,跟一般日期的卡片色、跟記帳藍點的顏色都要分得開 */
+.calendar-day-cell.today {
+  background: rgba(74, 144, 226, 0.35);
+  backdrop-filter: var(--card-blur);
+  -webkit-backdrop-filter: var(--card-blur);
+  font-weight: 700;
+}
 .calendar-dot {
   width: 5px;
   height: 5px;
   border-radius: 50%;
-  background: var(--accent);
+  /* 用橘色而不是藍色,避免跟「今天」的藍色玻璃背景太相近分不清 */
+  background: #e0a030;
 }
 
 /* ===== 統計頁:分類長條圖(水平長條,適合窄螢幕) ===== */
