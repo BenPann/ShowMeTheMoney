@@ -2198,42 +2198,73 @@ function renderCalendarView() {
   }
 }
 
+// 依「有沒有選中某一天」決定範圍:選了就是那一天,沒選就是月曆目前檢視的整個月
+function getCalendarScopeRecords() {
+  const all = loadRecords();
+  if (selectedDayFilter) {
+    return all.filter(r => r.date === selectedDayFilter);
+  }
+  return all.filter(r => isInStatsMonth(r.ts, getCalendarMonthDate()));
+}
+
 function renderCalendarDayResults() {
   const wrap = document.getElementById("calendarDayResults");
-  if (!selectedDayFilter) {
-    wrap.innerHTML = "";
+  let scoped = getCalendarScopeRecords();
+
+  // 搜尋框的關鍵字,在「單日」或「整月」兩種範圍下都適用
+  if (searchQuery) {
+    const q = searchQuery;
+    scoped = scoped.filter(r => {
+      const note = (r.note || "").toLowerCase();
+      const catName = catNameOf(r.categoryId).toLowerCase();
+      return note.includes(q) || catName.includes(q);
+    });
+  }
+
+  wrap.innerHTML = "";
+
+  if (scoped.length === 0) {
+    const rangeLabel = selectedDayFilter ? "這天" : "這個月";
+    wrap.innerHTML = `<p class="empty-hint">${rangeLabel}沒有符合條件的記帳紀錄</p>`;
     return;
   }
 
-  const dayRecords = loadRecords()
-    .filter(r => r.date === selectedDayFilter)
-    .sort((a, b) => b.ts - a.ts);
-
-  const total = dayRecords.reduce((sum, r) => sum + (r.type === "income" ? -r.amount : r.amount), 0);
-
-  wrap.innerHTML = `
-    <div class="day-group-header">
-      <span>${formatDateLabel(selectedDayFilter)}</span>
-      <span>小計 $${total}</span>
-    </div>
-  `;
-
-  if (dayRecords.length === 0) {
-    wrap.innerHTML += `<p class="empty-hint">這天還沒有記帳紀錄</p>`;
-    return;
+  if (selectedDayFilter) {
+    // 選了某一天:單一個小計 header,逐筆列出
+    const total = scoped.reduce((sum, r) => sum + (r.type === "income" ? -r.amount : r.amount), 0);
+    const header = document.createElement("div");
+    header.className = "day-group-header";
+    header.innerHTML = `<span>${formatDateLabel(selectedDayFilter)}</span><span>小計 $${total}</span>`;
+    wrap.appendChild(header);
+    scoped.sort((a, b) => b.ts - a.ts).forEach(r => wrap.appendChild(createRecordRow(r)));
+  } else {
+    // 沒選日期:預設顯示本月全部,依日期分組,跟明細列表的呈現方式一致
+    const groups = groupByDate(scoped);
+    groups.forEach(group => {
+      const groupEl = document.createElement("div");
+      groupEl.className = "day-group";
+      groupEl.innerHTML = `
+        <div class="day-group-header">
+          <span>${formatDateLabel(group.date)}</span>
+          <span>小計 $${group.total}</span>
+        </div>
+      `;
+      group.records.forEach(r => groupEl.appendChild(createRecordRow(r)));
+      wrap.appendChild(groupEl);
+    });
   }
-
-  dayRecords.forEach(r => wrap.appendChild(createRecordRow(r)));
 }
 
 document.getElementById("calendarPrevBtn").addEventListener("click", () => {
   calendarMonthOffset -= 1;
   renderCalendarView();
+  renderCalendarDayResults();
 });
 document.getElementById("calendarNextBtn").addEventListener("click", () => {
   if (calendarMonthOffset < 0) {
     calendarMonthOffset += 1;
     renderCalendarView();
+    renderCalendarDayResults();
   }
 });
 
@@ -2348,6 +2379,7 @@ document.getElementById("filterChips").addEventListener("click", (e) => {
 document.getElementById("recordSearchInput").addEventListener("input", (e) => {
   searchQuery = e.target.value.trim().toLowerCase();
   renderRecordList();
+  if (listViewMode === "calendar") renderCalendarDayResults();
 });
 
 /*
