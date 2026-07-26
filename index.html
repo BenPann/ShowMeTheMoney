@@ -807,6 +807,7 @@ nav.bottom-tabs {
   aspect-ratio: 1;
   box-sizing: border-box;
   min-width: 0;
+  margin: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -828,6 +829,11 @@ nav.bottom-tabs {
   backdrop-filter: var(--card-blur);
   -webkit-backdrop-filter: var(--card-blur);
   font-weight: 700;
+}
+/* 目前點選中、顯示在下方結果面板的那一天,加外框標示 */
+.calendar-day-cell.selected {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
 }
 .calendar-dot {
   width: 5px;
@@ -1242,6 +1248,7 @@ nav.bottom-tabs {
         <button class="month-nav-btn" id="calendarNextBtn" aria-label="下個月">›</button>
       </div>
       <div class="calendar-grid" id="calendarGrid"></div>
+      <div id="calendarDayResults" style="margin-top:1rem"></div>
     </div>
   </section>
 
@@ -1474,7 +1481,10 @@ function switchPage(target) {
   // 每次切到明細頁都重新讀取資料,確保剛記的帳馬上看得到
   if (target === "list") {
     renderRecordList();
-    if (listViewMode === "calendar") renderCalendarView();
+    if (listViewMode === "calendar") {
+      renderCalendarView();
+      renderCalendarDayResults();
+    }
   }
   if (target === "stats") renderStats();
   if (target === "categories") renderCategoryManageList();
@@ -1895,7 +1905,7 @@ let currentFilter = "all";
 let categoryFilter = null;   // 從統計頁點長條圖進來時,會設定這個值
 let filterMonthDate = null;  // 從統計頁點長條圖進來時,鎖定當時檢視的月份
 let searchQuery = "";        // 明細頁搜尋框的關鍵字
-let selectedDayFilter = null; // 從明細頁月曆檢視點某一天進來時,鎖定那一天(YYYY-MM-DD字串)
+let selectedDayFilter = null; // 月曆檢視目前選中的日期(YYYY-MM-DD字串),只影響月曆下方的結果面板,不影響主列表
 
 function isInMonth(ts, now) {
   const d = new Date(ts * 1000);
@@ -1922,9 +1932,6 @@ function filterRecords(records) {
       return note.includes(q) || catName.includes(q);
     });
   }
-
-  // 從月曆點某一天進來的篩選,優先權最高(比月份鎖定、篩選膠囊都優先)
-  if (selectedDayFilter) return result.filter(r => r.date === selectedDayFilter);
 
   // 從統計頁點進來的月份鎖定,優先於一般的全部/本月/本週篩選膠囊
   if (filterMonthDate) return result.filter(r => isInStatsMonth(r.ts, filterMonthDate));
@@ -2078,36 +2085,28 @@ function renderCategoryFilterTag() {
   const el = document.getElementById("categoryFilterTag");
   const chipsEl = document.getElementById("filterChips");
 
-  if (!categoryFilter && !selectedDayFilter) {
+  if (!categoryFilter) {
     el.innerHTML = "";
     chipsEl.style.display = "";
     return;
   }
 
-  // 月份鎖定或單日篩選這種「不可疊加」的狀態,才隱藏一般的全部/本月/本週膠囊;
-  // 單純的分類篩選仍然可以疊加膠囊使用(維持原本的行為)
-  chipsEl.style.display = (filterMonthDate || selectedDayFilter) ? "none" : "";
+  // 有月份鎖定時,一般的全部/本月/本週膠囊先隱藏,避免看起來像可以疊加篩選
+  chipsEl.style.display = filterMonthDate ? "none" : "";
 
-  let labelText;
-  if (selectedDayFilter) {
-    labelText = `篩選:${selectedDayFilter}${categoryFilter ? ` · ${catNameOf(categoryFilter)}` : ""}`;
-  } else {
-    const monthText = filterMonthDate
-      ? ` · ${filterMonthDate.getFullYear()}年${filterMonthDate.getMonth() + 1}月`
-      : "";
-    labelText = `篩選:${catNameOf(categoryFilter)}${monthText}`;
-  }
+  const monthText = filterMonthDate
+    ? ` · ${filterMonthDate.getFullYear()}年${filterMonthDate.getMonth() + 1}月`
+    : "";
 
   el.innerHTML = `
     <span class="category-filter-tag">
-      ${labelText}
-      <button id="clearCategoryFilterBtn" aria-label="清除篩選">✕</button>
+      篩選:${catNameOf(categoryFilter)}${monthText}
+      <button id="clearCategoryFilterBtn" aria-label="清除分類篩選">✕</button>
     </span>
   `;
   document.getElementById("clearCategoryFilterBtn").addEventListener("click", () => {
     categoryFilter = null;
     filterMonthDate = null;
-    selectedDayFilter = null;
     renderRecordList();
   });
 }
@@ -2131,7 +2130,10 @@ document.getElementById("listViewSegmented").addEventListener("click", (e) => {
   if (!btn) return;
   listViewMode = btn.dataset.view;
   applyListViewMode();
-  if (listViewMode === "calendar") renderCalendarView();
+  if (listViewMode === "calendar") {
+    renderCalendarView();
+    renderCalendarDayResults();
+  }
 });
 
 function getCalendarMonthDate() {
@@ -2180,19 +2182,48 @@ function renderCalendarView() {
     const hasRecord = recordDates.has(dateStr);
     const cell = document.createElement("button");
     cell.type = "button";
-    cell.className = "calendar-day-cell" + (dateStr === todayStr ? " today" : "");
+    const classNames = ["calendar-day-cell"];
+    if (dateStr === todayStr) classNames.push("today");
+    if (dateStr === selectedDayFilter) classNames.push("selected");
+    cell.className = classNames.join(" ");
     cell.innerHTML = `<span>${day}</span>${hasRecord ? '<span class="calendar-dot"></span>' : ""}`;
-    // 點某一天 = 篩選出那一天的明細,並自動切回列表檢視顯示結果
+    // 點某一天:只在月曆下方顯示那一天的明細,不切換分頁,方便連續點不同天快速比對
     cell.addEventListener("click", () => {
-      selectedDayFilter = dateStr;
-      categoryFilter = null;
-      filterMonthDate = null;
-      listViewMode = "list";
-      applyListViewMode();
-      renderRecordList();
+      // 再點一次同一天 = 取消選取,收起結果面板
+      selectedDayFilter = (selectedDayFilter === dateStr) ? null : dateStr;
+      renderCalendarView();     // 重新渲染,更新選中外框標示
+      renderCalendarDayResults();
     });
     grid.appendChild(cell);
   }
+}
+
+function renderCalendarDayResults() {
+  const wrap = document.getElementById("calendarDayResults");
+  if (!selectedDayFilter) {
+    wrap.innerHTML = "";
+    return;
+  }
+
+  const dayRecords = loadRecords()
+    .filter(r => r.date === selectedDayFilter)
+    .sort((a, b) => b.ts - a.ts);
+
+  const total = dayRecords.reduce((sum, r) => sum + (r.type === "income" ? -r.amount : r.amount), 0);
+
+  wrap.innerHTML = `
+    <div class="day-group-header">
+      <span>${formatDateLabel(selectedDayFilter)}</span>
+      <span>小計 $${total}</span>
+    </div>
+  `;
+
+  if (dayRecords.length === 0) {
+    wrap.innerHTML += `<p class="empty-hint">這天還沒有記帳紀錄</p>`;
+    return;
+  }
+
+  dayRecords.forEach(r => wrap.appendChild(createRecordRow(r)));
 }
 
 document.getElementById("calendarPrevBtn").addEventListener("click", () => {
@@ -2205,6 +2236,72 @@ document.getElementById("calendarNextBtn").addEventListener("click", () => {
     renderCalendarView();
   }
 });
+
+// 建立單一筆記帳紀錄的列(含左滑刪除/右滑編輯手勢),明細列表跟月曆下方的單日結果都共用這個函式
+function createRecordRow(r) {
+  const row = document.createElement("div");
+  row.className = "record-row";
+  const noteHtml = r.note
+    ? `<span class="record-note">· ${escapeHtml(r.note)}</span>`
+    : "";
+  const isIncome = r.type === "income";
+  const amountHtml = isIncome
+    ? `<span class="record-amount income">+$${r.amount}</span>`
+    : `<span class="record-amount">$${r.amount}</span>`;
+  row.innerHTML = `
+    <button class="record-edit-btn" aria-label="編輯備註">${iconSvgTag("pencil")}</button>
+    <div class="record-row-content">
+      <span class="record-cat">${catNameOf(r.categoryId)}${noteHtml}</span>
+      ${amountHtml}
+    </div>
+    <button class="record-delete-btn" aria-label="刪除">${iconSvgTag("trash")}</button>
+  `;
+
+  const content = row.querySelector(".record-row-content");
+  const deleteBtn = row.querySelector(".record-delete-btn");
+  const editBtn = row.querySelector(".record-edit-btn");
+
+  // 左滑顯示紅色刪除鍵、右滑顯示綠色編輯鍵,兩邊對稱;
+  // 已經展開的那一邊,往回滑(反方向)就收回,不會直接觸發動作,一定要點按鈕才算數
+  let startX = 0;
+  let dragging = false;
+
+  content.addEventListener("pointerdown", (e) => {
+    startX = e.clientX;
+    dragging = true;
+  });
+  content.addEventListener("pointerup", (e) => {
+    if (!dragging) return;
+    dragging = false;
+    const diff = e.clientX - startX;
+    if (diff < -30) {
+      if (content.classList.contains("swiped-right")) {
+        content.classList.remove("swiped-right");
+      } else {
+        content.classList.add("swiped-left");
+      }
+    } else if (diff > 30) {
+      if (content.classList.contains("swiped-left")) {
+        content.classList.remove("swiped-left");
+      } else {
+        content.classList.add("swiped-right");
+      }
+    }
+  });
+  content.addEventListener("click", () => {
+    if (content.classList.contains("swiped-left") || content.classList.contains("swiped-right")) {
+      content.classList.remove("swiped-left", "swiped-right");
+    }
+  });
+
+  deleteBtn.addEventListener("click", () => deleteRecord(r.id));
+  editBtn.addEventListener("click", () => {
+    content.classList.remove("swiped-right");
+    openNoteModal(r.id);
+  });
+
+  return row;
+}
 
 function renderRecordList() {
   renderCategoryFilterTag();
@@ -2230,71 +2327,7 @@ function renderRecordList() {
     `;
 
     group.records.forEach(r => {
-      const row = document.createElement("div");
-      row.className = "record-row";
-      const noteHtml = r.note
-        ? `<span class="record-note">· ${escapeHtml(r.note)}</span>`
-        : "";
-      const isIncome = r.type === "income";
-      const amountHtml = isIncome
-        ? `<span class="record-amount income">+$${r.amount}</span>`
-        : `<span class="record-amount">$${r.amount}</span>`;
-      row.innerHTML = `
-        <button class="record-edit-btn" aria-label="編輯備註">${iconSvgTag("pencil")}</button>
-        <div class="record-row-content">
-          <span class="record-cat">${catNameOf(r.categoryId)}${noteHtml}</span>
-          ${amountHtml}
-        </div>
-        <button class="record-delete-btn" aria-label="刪除">${iconSvgTag("trash")}</button>
-      `;
-
-      const content = row.querySelector(".record-row-content");
-      const deleteBtn = row.querySelector(".record-delete-btn");
-      const editBtn = row.querySelector(".record-edit-btn");
-
-      // 左滑顯示紅色刪除鍵、右滑顯示綠色編輯鍵,兩邊對稱;
-      // 已經展開的那一邊,往回滑(反方向)就收回,不會直接觸發動作,一定要點按鈕才算數
-      let startX = 0;
-      let dragging = false;
-
-      content.addEventListener("pointerdown", (e) => {
-        startX = e.clientX;
-        dragging = true;
-      });
-      content.addEventListener("pointerup", (e) => {
-        if (!dragging) return;
-        dragging = false;
-        const diff = e.clientX - startX;
-        if (diff < -30) {
-          // 左滑:如果原本是右滑展開的編輯鍵,先收回;否則展開刪除鍵
-          if (content.classList.contains("swiped-right")) {
-            content.classList.remove("swiped-right");
-          } else {
-            content.classList.add("swiped-left");
-          }
-        } else if (diff > 30) {
-          // 右滑:如果原本是左滑展開的刪除鍵,先收回;否則展開編輯鍵
-          if (content.classList.contains("swiped-left")) {
-            content.classList.remove("swiped-left");
-          } else {
-            content.classList.add("swiped-right");
-          }
-        }
-      });
-      // 點擊已滑開的列,先收回而不是誤觸其他動作
-      content.addEventListener("click", () => {
-        if (content.classList.contains("swiped-left") || content.classList.contains("swiped-right")) {
-          content.classList.remove("swiped-left", "swiped-right");
-        }
-      });
-
-      deleteBtn.addEventListener("click", () => deleteRecord(r.id));
-      editBtn.addEventListener("click", () => {
-        content.classList.remove("swiped-right");
-        openNoteModal(r.id);
-      });
-
-      groupEl.appendChild(row);
+      groupEl.appendChild(createRecordRow(r));
     });
 
     container.appendChild(groupEl);
