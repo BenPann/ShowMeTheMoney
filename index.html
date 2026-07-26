@@ -489,6 +489,7 @@ nav.bottom-tabs {
 .cat-submit-btn .icon-svg,
 .keypad-btn .icon-svg,
 .record-delete-btn .icon-svg,
+.record-edit-btn .icon-svg,
 .category-btn .icon-svg,
 .cat-icon-picker-btn .icon-svg {
   display: block;
@@ -593,7 +594,8 @@ nav.bottom-tabs {
   position: relative;
   z-index: 1;
 }
-.record-row-content.swiped { transform: translateX(-72px); }
+.record-row-content.swiped-left { transform: translateX(-72px); }
+.record-row-content.swiped-right { transform: translateX(72px); }
 .record-cat { font-size: 0.95rem; }
 .record-amount { font-size: 0.95rem; font-weight: 500; }
 .record-amount.income { color: #4caf82; }
@@ -610,6 +612,20 @@ nav.bottom-tabs {
   width: 72px;
   height: 100%;
   background: #d9463d;
+  color: #fff;
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 0;
+}
+.record-edit-btn {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 72px;
+  height: 100%;
+  background: #4caf82;
   color: #fff;
   border: none;
   display: flex;
@@ -2206,6 +2222,7 @@ function renderRecordList() {
         ? `<span class="record-amount income">+$${r.amount}</span>`
         : `<span class="record-amount">$${r.amount}</span>`;
       row.innerHTML = `
+        <button class="record-edit-btn" aria-label="編輯備註">${iconSvgTag("pencil")}</button>
         <div class="record-row-content">
           <span class="record-cat">${catNameOf(r.categoryId)}${noteHtml}</span>
           ${amountHtml}
@@ -2215,8 +2232,10 @@ function renderRecordList() {
 
       const content = row.querySelector(".record-row-content");
       const deleteBtn = row.querySelector(".record-delete-btn");
+      const editBtn = row.querySelector(".record-edit-btn");
 
-      // 左滑顯示刪除鍵;右滑在收合狀態下開啟備註編輯,已展開時右滑則是收回
+      // 左滑顯示紅色刪除鍵、右滑顯示綠色編輯鍵,兩邊對稱;
+      // 已經展開的那一邊,往回滑(反方向)就收回,不會直接觸發動作,一定要點按鈕才算數
       let startX = 0;
       let dragging = false;
 
@@ -2229,23 +2248,33 @@ function renderRecordList() {
         dragging = false;
         const diff = e.clientX - startX;
         if (diff < -30) {
-          content.classList.add("swiped");
-        } else if (diff > 30) {
-          if (content.classList.contains("swiped")) {
-            content.classList.remove("swiped");
+          // 左滑:如果原本是右滑展開的編輯鍵,先收回;否則展開刪除鍵
+          if (content.classList.contains("swiped-right")) {
+            content.classList.remove("swiped-right");
           } else {
-            openNoteModal(r.id);
+            content.classList.add("swiped-left");
+          }
+        } else if (diff > 30) {
+          // 右滑:如果原本是左滑展開的刪除鍵,先收回;否則展開編輯鍵
+          if (content.classList.contains("swiped-left")) {
+            content.classList.remove("swiped-left");
+          } else {
+            content.classList.add("swiped-right");
           }
         }
       });
       // 點擊已滑開的列,先收回而不是誤觸其他動作
       content.addEventListener("click", () => {
-        if (content.classList.contains("swiped")) {
-          content.classList.remove("swiped");
+        if (content.classList.contains("swiped-left") || content.classList.contains("swiped-right")) {
+          content.classList.remove("swiped-left", "swiped-right");
         }
       });
 
       deleteBtn.addEventListener("click", () => deleteRecord(r.id));
+      editBtn.addEventListener("click", () => {
+        content.classList.remove("swiped-right");
+        openNoteModal(r.id);
+      });
 
       groupEl.appendChild(row);
     });
