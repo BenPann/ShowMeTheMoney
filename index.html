@@ -21,13 +21,15 @@
     var scale = localStorage.getItem("ledger_font_scale") || "3";
     document.documentElement.style.fontSize = (steps[scale] || 100) + "%";
 
-    // 卡片透明度 / 玻璃樣式,跟主題一樣是裝置層級設定,不分帳號
+    // 卡片透明度 / 玻璃樣式 / 模糊度,跟主題一樣是裝置層級設定,不分帳號
     var glass = localStorage.getItem("ledger_card_glass") || "auto";
     var opacity = parseInt(localStorage.getItem("ledger_card_opacity") || "100", 10);
+    var blurLevel = localStorage.getItem("ledger_card_blur") || "2";
+    var blurMap = { "0": "none", "1": "blur(6px)", "2": "blur(14px)", "3": "blur(24px)" };
     var alpha = opacity / 100;
     var baseRgb = glass === "white" ? "255,255,255" : glass === "black" ? "0,0,0" : (theme === "dark" ? "44,44,46" : "255,255,255");
     document.documentElement.style.setProperty("--card-surface", "rgba(" + baseRgb + "," + alpha + ")");
-    document.documentElement.style.setProperty("--card-blur", opacity < 100 ? "blur(14px)" : "none");
+    document.documentElement.style.setProperty("--card-blur", blurMap[blurLevel] || "none");
 
     // 背景圖片依帳號區隔,先確認目前是否有「還沒過期」的登入 session,再讀對應帳號的背景圖
     var sessionRaw = localStorage.getItem("ledger_session");
@@ -1293,7 +1295,17 @@ nav.bottom-tabs {
         <button class="segmented-btn" data-value="white">白玻璃</button>
         <button class="segmented-btn" data-value="black">黑玻璃</button>
       </div>
-      <p class="gist-hint" style="margin-top:8px">透明度低於 100% 時,卡片會自動加上毛玻璃模糊效果,方便看清楚背後的背景圖片</p>
+    </div>
+
+    <div class="settings-row">
+      <p class="settings-row-label">卡片模糊度</p>
+      <div class="segmented" id="cardBlurSegmented">
+        <button class="segmented-btn" data-value="0">無</button>
+        <button class="segmented-btn" data-value="1">淺</button>
+        <button class="segmented-btn" data-value="2">中</button>
+        <button class="segmented-btn" data-value="3">深</button>
+      </div>
+      <p class="gist-hint" style="margin-top:8px">模糊度可以跟透明度自由搭配,設定背景圖片時效果最明顯</p>
     </div>
 
     <div class="settings-row">
@@ -2908,13 +2920,15 @@ document.getElementById("fontScaleSegmented").addEventListener("click", (e) => {
 });
 
 /*
-  ===== 設定頁:卡片透明度 / 玻璃樣式 =====
+  ===== 設定頁:卡片透明度 / 玻璃樣式 / 模糊度 =====
   「跟隨主題」模式下,卡片底色會用目前深色/淺色主題本來的卡片顏色;
   選「白玻璃」「黑玻璃」則不管目前是深色或淺色模式,強制套用白色或黑色的半透明底色。
-  透明度低於 100% 時額外加上 backdrop-filter 模糊,做出真正的毛玻璃質感。
+  模糊度是獨立的設定,可以跟透明度自由搭配(例如低透明度配深模糊、高透明度配淺模糊)。
 */
 const CARD_OPACITY_KEY = "ledger_card_opacity";
 const CARD_GLASS_KEY = "ledger_card_glass";
+const CARD_BLUR_KEY = "ledger_card_blur";
+const CARD_BLUR_MAP = { "0": "none", "1": "blur(6px)", "2": "blur(14px)", "3": "blur(24px)" };
 
 function computeCardSurfaceRgb(glass) {
   if (glass === "white") return "255,255,255";
@@ -2926,17 +2940,21 @@ function computeCardSurfaceRgb(glass) {
 function applyCardStyle() {
   const glass = localStorage.getItem(CARD_GLASS_KEY) || "auto";
   const opacity = parseInt(localStorage.getItem(CARD_OPACITY_KEY) || "100", 10);
+  const blurLevel = localStorage.getItem(CARD_BLUR_KEY) || "2";
   const alpha = opacity / 100;
   const rgb = computeCardSurfaceRgb(glass);
 
   document.documentElement.style.setProperty("--card-surface", `rgba(${rgb},${alpha})`);
-  document.documentElement.style.setProperty("--card-blur", opacity < 100 ? "blur(14px)" : "none");
+  document.documentElement.style.setProperty("--card-blur", CARD_BLUR_MAP[blurLevel] || "none");
 
   document.querySelectorAll("#cardGlassSegmented .segmented-btn").forEach(btn =>
     btn.classList.toggle("active", btn.dataset.value === glass)
   );
   document.querySelectorAll("#cardOpacitySegmented .segmented-btn").forEach(btn =>
     btn.classList.toggle("active", btn.dataset.value === String(opacity))
+  );
+  document.querySelectorAll("#cardBlurSegmented .segmented-btn").forEach(btn =>
+    btn.classList.toggle("active", btn.dataset.value === blurLevel)
   );
 }
 
@@ -2950,6 +2968,11 @@ function setCardOpacity(value) {
   applyCardStyle();
 }
 
+function setCardBlur(value) {
+  localStorage.setItem(CARD_BLUR_KEY, value);
+  applyCardStyle();
+}
+
 document.getElementById("cardGlassSegmented").addEventListener("click", (e) => {
   const btn = e.target.closest(".segmented-btn");
   if (btn) setCardGlass(btn.dataset.value);
@@ -2957,6 +2980,10 @@ document.getElementById("cardGlassSegmented").addEventListener("click", (e) => {
 document.getElementById("cardOpacitySegmented").addEventListener("click", (e) => {
   const btn = e.target.closest(".segmented-btn");
   if (btn) setCardOpacity(btn.dataset.value);
+});
+document.getElementById("cardBlurSegmented").addEventListener("click", (e) => {
+  const btn = e.target.closest(".segmented-btn");
+  if (btn) setCardBlur(btn.dataset.value);
 });
 
 // 開啟頁面時,讓設定頁的按鈕反映目前實際生效中的設定(跟 <head> 裡讀到的值一致)
