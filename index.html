@@ -1512,6 +1512,52 @@ document.getElementById("bottomTabs").addEventListener("click", (e) => {
 });
 
 /*
+  ===== 左右滑動切換分頁 =====
+  在主內容區左右滑動,可以像翻頁一樣切換到上一頁/下一頁,跟底部導覽列的順序一致。
+  刻意排除掉「本身就有水平手勢」的元件,避免搶走既有功能:
+  - .record-row-content:明細列表左滑刪除、右滑編輯備註
+  - .filter-chips:本來就是可以左右捲動的篩選膠囊列
+  也會判斷滑動角度必須明顯偏水平,避免跟原本的上下捲動衝突。
+*/
+const TAB_ORDER = ["input", "stats", "list", "categories", "settings"];
+let pageSwipeStartX = 0;
+let pageSwipeStartY = 0;
+let pageSwipeTracking = false;
+
+const mainContentEl = document.querySelector("main.app-content");
+
+mainContentEl.addEventListener("pointerdown", (e) => {
+  if (e.target.closest(".record-row-content") || e.target.closest(".filter-chips")) {
+    pageSwipeTracking = false;
+    return;
+  }
+  pageSwipeStartX = e.clientX;
+  pageSwipeStartY = e.clientY;
+  pageSwipeTracking = true;
+});
+
+mainContentEl.addEventListener("pointerup", (e) => {
+  if (!pageSwipeTracking) return;
+  pageSwipeTracking = false;
+
+  const dx = e.clientX - pageSwipeStartX;
+  const dy = e.clientY - pageSwipeStartY;
+
+  // 滑動距離要夠大、方向要明顯偏水平(水平距離至少是垂直距離的1.5倍),才當作換頁手勢
+  if (Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
+
+  const activeSection = document.querySelector("section[data-page].active");
+  if (!activeSection) return;
+  const currentIndex = TAB_ORDER.indexOf(activeSection.dataset.page);
+  if (currentIndex === -1) return;
+
+  const nextIndex = dx < 0 ? currentIndex + 1 : currentIndex - 1;
+  if (nextIndex < 0 || nextIndex >= TAB_ORDER.length) return; // 已經是第一頁/最後一頁,不循環
+
+  switchPage(TAB_ORDER[nextIndex]);
+});
+
+/*
   ===== 帳號系統 =====
   currentEmail 決定目前是「誰」在用這支手機,
   所有記帳資料、分類資料都用 email 當作 key 的一部分,彼此完全獨立不互通。
