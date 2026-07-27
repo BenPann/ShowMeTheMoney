@@ -141,6 +141,16 @@ body {
   z-index: 1;
 }
 
+/* 畫面特效(下雨/下雪/楓葉):疊在一般內容之上,但在彈出視窗之下,不擋任何點擊 */
+#weatherCanvas {
+  position: fixed;
+  inset: 0;
+  z-index: 5;
+  pointer-events: none;
+  width: 100%;
+  height: 100%;
+}
+
 /* 主內容區:每個分頁是一個 <section data-page="..."> ===== */
 main.app-content {
   flex: 1;
@@ -1157,6 +1167,9 @@ nav.bottom-tabs {
 <!-- ===== 自動對比度遮罩:依照片亮度自動算出深淺,確保文字在任何照片上都看得清楚 ===== -->
 <div id="bgOverlayLayer"></div>
 
+<!-- ===== 畫面特效(下雨/下雪/楓葉):固定貼在螢幕上,疊在內容之上但不擋點擊 ===== -->
+<canvas id="weatherCanvas" style="display:none"></canvas>
+
 <!-- ===== 登入 / 註冊畫面:未登入時顯示,蓋住整個App ===== -->
 <div class="auth-screen" id="authScreen">
   <div class="auth-card">
@@ -1308,6 +1321,16 @@ nav.bottom-tabs {
         <button class="segmented-btn" data-value="3">深</button>
       </div>
       <p class="gist-hint" style="margin-top:8px">模糊度可以跟透明度自由搭配,設定背景圖片時效果最明顯</p>
+    </div>
+
+    <div class="settings-row">
+      <p class="settings-row-label">畫面特效</p>
+      <div class="segmented" id="weatherEffectSegmented">
+        <button class="segmented-btn active" data-value="none">無</button>
+        <button class="segmented-btn" data-value="rain">下雨</button>
+        <button class="segmented-btn" data-value="snow">下雪</button>
+        <button class="segmented-btn" data-value="maple">楓葉</button>
+      </div>
     </div>
 
     <div class="settings-row">
@@ -1518,7 +1541,10 @@ document.getElementById("bottomTabs").addEventListener("click", (e) => {
   - .record-row-content:明細列表左滑刪除、右滑編輯備註
   - .filter-chips:本來就是可以左右捲動的篩選膠囊列
   也會判斷滑動角度必須明顯偏水平,避免跟原本的上下捲動衝突。
+
+  目前先停用(體驗不理想),但邏輯保留,之後要重新啟用只要把這個常數改回 true 即可。
 */
+const PAGE_SWIPE_ENABLED = false;
 const TAB_ORDER = ["input", "stats", "list", "categories", "settings"];
 let pageSwipeStartX = 0;
 let pageSwipeStartY = 0;
@@ -1527,6 +1553,7 @@ let pageSwipeTracking = false;
 const mainContentEl = document.querySelector("main.app-content");
 
 mainContentEl.addEventListener("pointerdown", (e) => {
+  if (!PAGE_SWIPE_ENABLED) return;
   if (e.target.closest(".record-row-content") || e.target.closest(".filter-chips")) {
     pageSwipeTracking = false;
     return;
@@ -1537,6 +1564,7 @@ mainContentEl.addEventListener("pointerdown", (e) => {
 });
 
 mainContentEl.addEventListener("pointerup", (e) => {
+  if (!PAGE_SWIPE_ENABLED) return;
   if (!pageSwipeTracking) return;
   pageSwipeTracking = false;
 
@@ -3522,6 +3550,232 @@ if ("serviceWorker" in navigator) {
     });
   });
 }
+
+/*
+  ===== 畫面特效:下雨 / 下雪 / 楓葉 =====
+  用一個蓋滿全螢幕的 <canvas>,搭配 requestAnimationFrame 畫粒子動畫。
+  裝置層級設定(跟主題、卡片樣式一樣不分帳號),純視覺效果,不影響任何記帳功能。
+
+  三種特效的共同概念:
+  - 粒子從畫面上方持續產生,往下飄落
+  - 飄到「地面」(底部導覽列的上邊界)時觸發對應效果:
+    - 下雨:立即飛濺,飛濺粒子短暫存在後消失,不會堆積
+    - 下雪/楓葉:落地處會累加一點「堆積高度」,但每一影格都會緩慢融化/消失,
+      堆積速度 > 融化速度時才會看到明顯的雪堆/落葉堆,絕不會無限增高
+*/
+const WEATHER_EFFECT_KEY = "ledger_weather_effect";
+const WEATHER_BUCKETS = 40; // 堆積效果分成幾個橫向區塊,模擬出高低不平的雪堆/落葉堆
+
+let weatherEffect = "none";
+let weatherAnimId = null;
+let weatherParticles = [];
+let weatherSplashes = [];      // 只有下雨會用到
+let weatherPileHeights = [];   // 下雪/楓葉的堆積高度(每個橫向區塊各自一個值)
+
+function getWeatherCanvas() {
+  return document.getElementById("weatherCanvas");
+}
+
+function resizeWeatherCanvas() {
+  const canvas = getWeatherCanvas();
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+}
+
+// 「地面」的高度用底部導覽列的實際位置去量,不同機型、有沒有安全區域都能準確對齊
+function getWeatherGroundY() {
+  const nav = document.querySelector("nav.bottom-tabs");
+  const canvas = getWeatherCanvas();
+  if (!nav) return canvas.height - 90;
+  return nav.getBoundingClientRect().top;
+}
+
+function createWeatherParticle(canvas) {
+  if (weatherEffect === "rain") {
+    return {
+      x: Math.random() * canvas.width,
+      y: Math.random() * canvas.height,
+      speed: 9 + Math.random() * 7,
+      len: 12 + Math.random() * 10
+    };
+  }
+  if (weatherEffect === "snow") {
+    return {
+      x: Math.random() * canvas.width,
+      y: Math.random() * canvas.height,
+      radius: 1.5 + Math.random() * 2.5,
+      speed: 0.6 + Math.random() * 1.2,
+      driftPhase: Math.random() * Math.PI * 2,
+      driftAmp: 0.6 + Math.random() * 1
+    };
+  }
+  // 楓葉:飄動幅度更大、會旋轉
+  return {
+    x: Math.random() * canvas.width,
+    y: Math.random() * canvas.height,
+    size: 5 + Math.random() * 4,
+    speed: 1 + Math.random() * 1.3,
+    driftPhase: Math.random() * Math.PI * 2,
+    driftAmp: 1.2 + Math.random() * 1.5,
+    rotation: Math.random() * Math.PI * 2,
+    rotationSpeed: (Math.random() - 0.5) * 0.06,
+    color: Math.random() > 0.5 ? "#c9622f" : "#d9a441"
+  };
+}
+
+function initWeatherParticles() {
+  const canvas = getWeatherCanvas();
+  weatherParticles = [];
+  weatherSplashes = [];
+  weatherPileHeights = new Array(WEATHER_BUCKETS).fill(0);
+  const count = weatherEffect === "rain" ? 70 : 40;
+  for (let i = 0; i < count; i++) {
+    weatherParticles.push(createWeatherParticle(canvas));
+  }
+}
+
+function weatherBucketIndex(x, canvasWidth) {
+  return Math.min(WEATHER_BUCKETS - 1, Math.max(0, Math.floor((x / canvasWidth) * WEATHER_BUCKETS)));
+}
+
+function stepWeather() {
+  const canvas = getWeatherCanvas();
+  const ctx = canvas.getContext("2d");
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  const groundY = getWeatherGroundY();
+
+  if (weatherEffect === "rain") {
+    ctx.strokeStyle = "rgba(180,210,255,0.55)";
+    ctx.lineWidth = 1.5;
+    weatherParticles.forEach(p => {
+      ctx.beginPath();
+      ctx.moveTo(p.x, p.y);
+      ctx.lineTo(p.x - 2, p.y + p.len);
+      ctx.stroke();
+      p.y += p.speed;
+      if (p.y > groundY) {
+        // 落地飛濺:噴出幾個短命的小粒子,立刻開始消散,不會堆積
+        for (let i = 0; i < 4; i++) {
+          weatherSplashes.push({
+            x: p.x,
+            y: groundY,
+            vx: (Math.random() - 0.5) * 3,
+            vy: -Math.random() * 2 - 1,
+            life: 1
+          });
+        }
+        p.x = Math.random() * canvas.width;
+        p.y = -10;
+      }
+    });
+    ctx.fillStyle = "rgba(200,220,255,0.7)";
+    weatherSplashes.forEach(s => {
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, 1.5, 0, Math.PI * 2);
+      ctx.fill();
+      s.x += s.vx;
+      s.y += s.vy;
+      s.vy += 0.15;
+      s.life -= 0.06;
+    });
+    weatherSplashes = weatherSplashes.filter(s => s.life > 0);
+  } else if (weatherEffect === "snow" || weatherEffect === "maple") {
+    // 每一影格都先融化一點點,長期下來堆積高度會停在「落下速度」和「融化速度」的平衡點,不會一直長高
+    for (let i = 0; i < weatherPileHeights.length; i++) {
+      weatherPileHeights[i] = Math.max(0, weatherPileHeights[i] - 0.025);
+    }
+
+    weatherParticles.forEach(p => {
+      p.driftPhase += 0.02;
+      p.y += p.speed;
+      p.x += Math.sin(p.driftPhase) * p.driftAmp * 0.3;
+      if (p.x < 0) p.x = canvas.width;
+      if (p.x > canvas.width) p.x = 0;
+
+      const bucket = weatherBucketIndex(p.x, canvas.width);
+      const pileTop = groundY - weatherPileHeights[bucket];
+
+      if (p.y >= pileTop) {
+        weatherPileHeights[bucket] = Math.min(26, weatherPileHeights[bucket] + 1.4);
+        p.x = Math.random() * canvas.width;
+        p.y = -10;
+        if (weatherEffect === "maple") {
+          p.rotation = Math.random() * Math.PI * 2;
+        }
+      }
+
+      if (weatherEffect === "snow") {
+        ctx.fillStyle = "rgba(255,255,255,0.85)";
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+        ctx.fill();
+      } else {
+        p.rotation += p.rotationSpeed;
+        ctx.save();
+        ctx.translate(p.x, p.y);
+        ctx.rotate(p.rotation);
+        ctx.fillStyle = p.color;
+        ctx.beginPath();
+        ctx.ellipse(0, 0, p.size, p.size * 0.6, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
+    });
+
+    // 畫出堆積的雪/落葉,沿著每個區塊的高度連成一片
+    ctx.fillStyle = weatherEffect === "snow" ? "rgba(255,255,255,0.8)" : "rgba(196,120,60,0.7)";
+    ctx.beginPath();
+    ctx.moveTo(0, groundY);
+    const bucketWidth = canvas.width / WEATHER_BUCKETS;
+    weatherPileHeights.forEach((h, i) => {
+      ctx.lineTo(i * bucketWidth, groundY - h);
+      ctx.lineTo((i + 1) * bucketWidth, groundY - h);
+    });
+    ctx.lineTo(canvas.width, groundY);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  weatherAnimId = requestAnimationFrame(stepWeather);
+}
+
+function stopWeatherEffect() {
+  if (weatherAnimId) cancelAnimationFrame(weatherAnimId);
+  weatherAnimId = null;
+}
+
+function startWeatherEffect(type) {
+  stopWeatherEffect();
+  weatherEffect = type;
+  localStorage.setItem(WEATHER_EFFECT_KEY, type);
+
+  document.querySelectorAll("#weatherEffectSegmented .segmented-btn").forEach(btn =>
+    btn.classList.toggle("active", btn.dataset.value === type)
+  );
+
+  const canvas = getWeatherCanvas();
+  if (type === "none") {
+    canvas.style.display = "none";
+    return;
+  }
+  canvas.style.display = "block";
+  resizeWeatherCanvas();
+  initWeatherParticles();
+  stepWeather();
+}
+
+window.addEventListener("resize", () => {
+  if (weatherEffect !== "none") resizeWeatherCanvas();
+});
+
+document.getElementById("weatherEffectSegmented").addEventListener("click", (e) => {
+  const btn = e.target.closest(".segmented-btn");
+  if (!btn) return;
+  startWeatherEffect(btn.dataset.value);
+});
+
+// 開機時套用上次選擇的特效(裝置層級設定,不用登入就能生效)
+startWeatherEffect(localStorage.getItem(WEATHER_EFFECT_KEY) || "none");
 </script>
 
 </body>
