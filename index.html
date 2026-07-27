@@ -1343,8 +1343,15 @@ nav.bottom-tabs {
         <button class="segmented-btn" data-value="sakura">櫻花</button>
         <button class="segmented-btn" data-value="meteor">流星</button>
         <button class="segmented-btn" data-value="firefly">螢火蟲</button>
+        <button class="segmented-btn" data-value="coin">金幣</button>
+        <button class="segmented-btn" data-value="lightflare">光斑</button>
+        <button class="segmented-btn" data-value="stardust">星塵</button>
+        <button class="segmented-btn" data-value="aurora">極光</button>
+        <button class="segmented-btn" data-value="bubble">泡泡</button>
       </div>
+      <p class="gist-hint" style="margin-top:8px">極光效果只在深色模式下顯示,淺色模式下暫時不會有畫面</p>
     </div>
+
 
     <div class="settings-row">
       <p class="settings-row-label">畫面文字大小</p>
@@ -3586,6 +3593,15 @@ let weatherSplashes = [];      // 只有下雨會用到
 let weatherPileHeights = [];   // 下雪/楓葉/櫻花的堆積高度(每個橫向區塊各自一個值)
 let weatherMeteors = [];       // 只有流星雨會用到
 
+let weatherAuroraPhase = 0; // 只有極光會用到,累加後做出波浪流動感
+
+// 螢火蟲/星塵/光斑共用「緩慢隨機漂移 + 忽明忽暗」的機制,差別只在顏色/大小/速度參數
+const AMBIENT_STYLE = {
+  firefly: { color: "220,255,140", radiusMin: 1.5, radiusMax: 3, glowSpeedMin: 0.02, glowSpeedMax: 0.04, moveMax: 0.6, alphaMin: 0.2, alphaRange: 0.6 },
+  stardust: { color: "220,230,255", radiusMin: 0.8, radiusMax: 1.8, glowSpeedMin: 0.01, glowSpeedMax: 0.02, moveMax: 0.25, alphaMin: 0.1, alphaRange: 0.5 },
+  lightflare: { color: "255,230,180", radiusMin: 14, radiusMax: 26, glowSpeedMin: 0.008, glowSpeedMax: 0.015, moveMax: 0.15, alphaMin: 0.05, alphaRange: 0.18 }
+};
+
 function getWeatherCanvas() {
   return document.getElementById("weatherCanvas");
 }
@@ -3652,16 +3668,40 @@ function createWeatherParticle(canvas) {
       color: Math.random() > 0.5 ? "#f4b8c8" : "#fce4ec"
     };
   }
-  if (weatherEffect === "firefly") {
-    // 螢火蟲:緩慢隨機漂移 + 忽明忽暗的發光效果,不往下掉、不堆積
+  if (weatherEffect === "coin") {
+    // 金幣:掉落時邊轉邊落下,累積在導覽列上方,呼應記帳主題
     return {
       x: Math.random() * canvas.width,
       y: Math.random() * canvas.height,
-      vx: (Math.random() - 0.5) * 0.4,
-      vy: (Math.random() - 0.5) * 0.4,
+      size: 4 + Math.random() * 3,
+      speed: 1.2 + Math.random() * 1.3,
+      driftPhase: Math.random() * Math.PI * 2,
+      driftAmp: 0.6 + Math.random() * 0.8,
+      rotation: Math.random() * Math.PI * 2,
+      rotationSpeed: 0.05 + Math.random() * 0.05
+    };
+  }
+  if (AMBIENT_STYLE[weatherEffect]) {
+    const s = AMBIENT_STYLE[weatherEffect];
+    return {
+      x: Math.random() * canvas.width,
+      y: Math.random() * canvas.height,
+      vx: (Math.random() - 0.5) * s.moveMax,
+      vy: (Math.random() - 0.5) * s.moveMax,
       glowPhase: Math.random() * Math.PI * 2,
-      glowSpeed: 0.02 + Math.random() * 0.02,
-      radius: 1.5 + Math.random() * 1.5
+      glowSpeed: s.glowSpeedMin + Math.random() * (s.glowSpeedMax - s.glowSpeedMin),
+      radius: s.radiusMin + Math.random() * (s.radiusMax - s.radiusMin)
+    };
+  }
+  if (weatherEffect === "bubble") {
+    // 泡泡:方向跟雪/楓葉相反,從下往上飄,飄到頂端就消失,不落地不堆積
+    return {
+      x: Math.random() * canvas.width,
+      y: canvas.height + Math.random() * canvas.height,
+      radius: 3 + Math.random() * 5,
+      speed: 0.4 + Math.random() * 0.8,
+      driftPhase: Math.random() * Math.PI * 2,
+      driftAmp: 0.8 + Math.random() * 1.2
     };
   }
   return null;
@@ -3672,6 +3712,7 @@ function initWeatherParticles() {
   weatherParticles = [];
   weatherSplashes = [];
   weatherMeteors = [];
+  weatherAuroraPhase = 0;
   weatherPileHeights = new Array(WEATHER_BUCKETS).fill(0);
 
   const countMap = {
@@ -3679,7 +3720,11 @@ function initWeatherParticles() {
     snow: 40,
     maple: 20,   // 比原本的40減少一半左右
     sakura: 25,
-    firefly: 18
+    firefly: 18,
+    coin: 22,
+    lightflare: 10,
+    stardust: 25,
+    bubble: 20
   };
   const count = countMap[weatherEffect] || 0;
   for (let i = 0; i < count; i++) {
@@ -3692,11 +3737,12 @@ function weatherBucketIndex(x, canvasWidth) {
 }
 
 // 這幾種是「飄落 + 堆積在地面」類型,共用同一套堆積/融化邏輯
-const ACCUMULATING_EFFECTS = ["snow", "maple", "sakura"];
+const ACCUMULATING_EFFECTS = ["snow", "maple", "sakura", "coin"];
 const PILE_COLOR_MAP = {
   snow: "rgba(255,255,255,0.8)",
   maple: "rgba(196,120,60,0.7)",
-  sakura: "rgba(244,184,200,0.75)"
+  sakura: "rgba(244,184,200,0.75)",
+  coin: "rgba(244,196,48,0.75)"
 };
 
 function stepWeather() {
@@ -3769,6 +3815,20 @@ function stepWeather() {
         ctx.beginPath();
         ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
         ctx.fill();
+      } else if (weatherEffect === "coin") {
+        // 金幣邊轉邊落下:用旋轉角度的餘弦值去擠壓橢圓寬度,做出硬幣翻轉的錯覺
+        p.rotation += p.rotationSpeed;
+        const squish = Math.max(0.15, Math.abs(Math.cos(p.rotation)));
+        ctx.save();
+        ctx.translate(p.x, p.y);
+        ctx.fillStyle = "#f4c430";
+        ctx.beginPath();
+        ctx.ellipse(0, 0, p.size * squish, p.size, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = "rgba(255,255,255,0.7)";
+        ctx.lineWidth = 0.8;
+        ctx.stroke();
+        ctx.restore();
       } else {
         // 楓葉、櫻花都是旋轉的橢圓花瓣/葉子,差別只在顏色跟飄動參數
         p.rotation += p.rotationSpeed;
@@ -3783,7 +3843,7 @@ function stepWeather() {
       }
     });
 
-    // 畫出堆積的雪/落葉/花瓣,沿著每個區塊的高度連成一片
+    // 畫出堆積的雪/落葉/花瓣/金幣,沿著每個區塊的高度連成一片
     ctx.fillStyle = PILE_COLOR_MAP[weatherEffect] || "rgba(255,255,255,0.8)";
     ctx.beginPath();
     ctx.moveTo(0, groundY);
@@ -3796,24 +3856,59 @@ function stepWeather() {
     ctx.closePath();
     ctx.fill();
 
-  } else if (weatherEffect === "firefly") {
-    // 螢火蟲:緩慢隨機遊走,碰到邊界就反彈,搭配呼吸般的發光強弱變化
+  } else if (AMBIENT_STYLE[weatherEffect]) {
+    // 螢火蟲/星塵/光斑共用:緩慢隨機遊走,碰到邊界就反彈,搭配呼吸般的發光強弱變化
+    const s = AMBIENT_STYLE[weatherEffect];
     weatherParticles.forEach(p => {
       p.x += p.vx;
       p.y += p.vy;
       p.vx += (Math.random() - 0.5) * 0.05;
       p.vy += (Math.random() - 0.5) * 0.05;
-      p.vx = Math.max(-0.6, Math.min(0.6, p.vx));
-      p.vy = Math.max(-0.6, Math.min(0.6, p.vy));
+      p.vx = Math.max(-s.moveMax, Math.min(s.moveMax, p.vx));
+      p.vy = Math.max(-s.moveMax, Math.min(s.moveMax, p.vy));
       if (p.x < 0 || p.x > canvas.width) p.vx *= -1;
       if (p.y < 0 || p.y > groundY) p.vy *= -1;
       p.glowPhase += p.glowSpeed;
 
       const glow = (Math.sin(p.glowPhase) + 1) / 2; // 0~1 之間來回,做出忽明忽暗
-      const alpha = 0.2 + glow * 0.6;
-      ctx.fillStyle = `rgba(220,255,140,${alpha})`;
+      const alpha = s.alphaMin + glow * s.alphaRange;
+
+      if (weatherEffect === "lightflare") {
+        // 用放射狀漸層畫出模糊光暈的感覺,而不是實心圓點
+        const grad = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.radius);
+        grad.addColorStop(0, `rgba(${s.color},${alpha})`);
+        grad.addColorStop(1, `rgba(${s.color},0)`);
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+        ctx.fill();
+      } else {
+        ctx.fillStyle = `rgba(${s.color},${alpha})`;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.radius + glow * 1.2, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    });
+
+  } else if (weatherEffect === "bubble") {
+    // 泡泡:從畫面下方往上飄,飄到頂端就消失重新從底部出現,不落地不堆積
+    ctx.lineWidth = 1;
+    weatherParticles.forEach(p => {
+      p.driftPhase += 0.02;
+      p.y -= p.speed;
+      p.x += Math.sin(p.driftPhase) * p.driftAmp * 0.3;
+      if (p.y < -10) {
+        p.y = canvas.height + 10;
+        p.x = Math.random() * canvas.width;
+      }
+      ctx.strokeStyle = "rgba(200,230,255,0.5)";
       ctx.beginPath();
-      ctx.arc(p.x, p.y, p.radius + glow * 1.5, 0, Math.PI * 2);
+      ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+      ctx.stroke();
+      // 小亮點做出反光感
+      ctx.fillStyle = "rgba(255,255,255,0.6)";
+      ctx.beginPath();
+      ctx.arc(p.x - p.radius * 0.3, p.y - p.radius * 0.3, p.radius * 0.2, 0, Math.PI * 2);
       ctx.fill();
     });
 
@@ -3844,6 +3939,33 @@ function stepWeather() {
       m.life -= 0.012;
     });
     weatherMeteors = weatherMeteors.filter(m => m.life > 0 && m.y < canvas.height && m.x > -50);
+
+  } else if (weatherEffect === "aurora") {
+    // 極光:只在深色模式下顯示,淺色模式畫布保持空白(疊在淺色背景上效果不好看)
+    const isDark = document.documentElement.getAttribute("data-theme") === "dark";
+    if (isDark) {
+      weatherAuroraPhase += 0.006;
+      const bands = [
+        { color: "76,222,157", baseY: canvas.height * 0.12, amp: 22, freq: 0.008 },
+        { color: "138,99,210", baseY: canvas.height * 0.2, amp: 28, freq: 0.006 },
+        { color: "76,180,222", baseY: canvas.height * 0.16, amp: 18, freq: 0.01 }
+      ];
+      bands.forEach((b, bi) => {
+        ctx.beginPath();
+        for (let x = 0; x <= canvas.width; x += 10) {
+          const y = b.baseY + Math.sin(x * b.freq + weatherAuroraPhase + bi) * b.amp;
+          if (x === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+        }
+        ctx.lineTo(canvas.width, 0);
+        ctx.lineTo(0, 0);
+        ctx.closePath();
+        const grad = ctx.createLinearGradient(0, 0, 0, b.baseY + b.amp + 40);
+        grad.addColorStop(0, `rgba(${b.color},0.18)`);
+        grad.addColorStop(1, `rgba(${b.color},0)`);
+        ctx.fillStyle = grad;
+        ctx.fill();
+      });
+    }
   }
 
   weatherAnimId = requestAnimationFrame(stepWeather);
