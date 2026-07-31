@@ -5,10 +5,15 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>快速記帳</title>
 
-<!-- iOS 加入主畫面設定,先預留,之後補圖示 -->
+<!-- iOS 加入主畫面設定 -->
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="記帳">
+<link rel="apple-touch-icon" href="icon-180.png">
+
+<!-- PWA:Android/Chrome 用的 manifest 與主題色 -->
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#1c1c1e">
 
 <!-- 提早套用已儲存的主題/文字大小/卡片樣式/背景圖片設定,避免每次開啟先閃一下預設樣式再切換 -->
 <script>
@@ -3858,15 +3863,33 @@ function stepWeather() {
       }
     });
 
-    // 畫出堆積的雪/落葉/花瓣/金幣,沿著每個區塊的高度連成一片
+    // 畫出堆積的雪/落葉/花瓣/金幣:
+    // 1. 先對高度陣列做輕微的移動平均,讓相鄰區塊之間的落差變柔和,不會忽高忽低
+    // 2. 用二次貝茲曲線把每個區塊「中點」平滑連起來,取代原本逐格拼接矩形的畫法,
+    //    避免看起來像一格一格堆疊的積木,改成自然圓潤的雪堆/落葉堆輪廓
+    const smoothedPile = weatherPileHeights.map((h, i) => {
+      const prev = weatherPileHeights[i - 1] !== undefined ? weatherPileHeights[i - 1] : h;
+      const next = weatherPileHeights[i + 1] !== undefined ? weatherPileHeights[i + 1] : h;
+      return (prev + h * 2 + next) / 4;
+    });
+
+    const bucketWidth = canvas.width / WEATHER_BUCKETS;
+    const pilePoints = smoothedPile.map((h, i) => ({
+      x: (i + 0.5) * bucketWidth,
+      y: groundY - h
+    }));
+
     ctx.fillStyle = PILE_COLOR_MAP[weatherEffect] || "rgba(255,255,255,0.8)";
     ctx.beginPath();
     ctx.moveTo(0, groundY);
-    const bucketWidth = canvas.width / WEATHER_BUCKETS;
-    weatherPileHeights.forEach((h, i) => {
-      ctx.lineTo(i * bucketWidth, groundY - h);
-      ctx.lineTo((i + 1) * bucketWidth, groundY - h);
-    });
+    ctx.lineTo(pilePoints[0].x, pilePoints[0].y);
+    for (let i = 0; i < pilePoints.length - 1; i++) {
+      const midX = (pilePoints[i].x + pilePoints[i + 1].x) / 2;
+      const midY = (pilePoints[i].y + pilePoints[i + 1].y) / 2;
+      ctx.quadraticCurveTo(pilePoints[i].x, pilePoints[i].y, midX, midY);
+    }
+    const lastPoint = pilePoints[pilePoints.length - 1];
+    ctx.lineTo(lastPoint.x, lastPoint.y);
     ctx.lineTo(canvas.width, groundY);
     ctx.closePath();
     ctx.fill();
