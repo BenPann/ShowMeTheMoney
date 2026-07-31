@@ -3584,7 +3584,7 @@ if ("serviceWorker" in navigator) {
       堆積速度 > 融化速度時才會看到明顯的雪堆/落葉堆,絕不會無限增高
 */
 const WEATHER_EFFECT_KEY = "ledger_weather_effect";
-const WEATHER_BUCKETS = 40; // 堆積效果分成幾個橫向區塊,模擬出高低不平的雪堆/落葉堆
+const WEATHER_BUCKETS = 22; // 堆積效果分成幾個橫向區塊,模擬出高低不平的雪堆/落葉堆(數量減少讓落點更集中,較容易堆出明顯高度)
 
 let weatherEffect = "none";
 let weatherAnimId = null;
@@ -3612,12 +3612,17 @@ function resizeWeatherCanvas() {
   canvas.height = window.innerHeight;
 }
 
-// 「地面」的高度用底部導覽列的實際位置去量,不同機型、有沒有安全區域都能準確對齊
+// 「地面」的高度用底部導覽列的實際位置去量,不同機型、有沒有安全區域都能準確對齊。
+// 如果導覽列目前完全沒有版面配置(例如還在登入畫面,#appRoot 是 display:none,
+// 底部導覽列整個不參與版面計算,量到的高度會是 0),就不信任這個 0 值,改用合理預設值,
+// 避免雨滴落點跑掉。
 function getWeatherGroundY() {
   const nav = document.querySelector("nav.bottom-tabs");
   const canvas = getWeatherCanvas();
   if (!nav) return canvas.height - 90;
-  return nav.getBoundingClientRect().top;
+  const rect = nav.getBoundingClientRect();
+  if (rect.height === 0) return canvas.height - 90;
+  return rect.top;
 }
 
 function createWeatherParticle(canvas) {
@@ -3747,6 +3752,15 @@ const PILE_COLOR_MAP = {
 
 function stepWeather() {
   const canvas = getWeatherCanvas();
+
+  // 每一影格都自我校正一次:如果畫布的實際繪圖解析度跟目前視窗尺寸對不上
+  // (常見於 iOS 網址列收合/展開、旋轉螢幕、或開機時版面還沒穩定的時序競爭),
+  // 瀏覽器會把畫布內容整個拉伸或擠壓去塞進新的顯示尺寸,導致我們畫的「地面線」
+  // 視覺上跑位,不再對齊導覽列的實際邊界。這裡主動偵測並修正,不用等 resize 事件觸發。
+  if (canvas.width !== window.innerWidth || canvas.height !== window.innerHeight) {
+    resizeWeatherCanvas();
+  }
+
   const ctx = canvas.getContext("2d");
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   const groundY = getWeatherGroundY();
@@ -3788,9 +3802,10 @@ function stepWeather() {
     weatherSplashes = weatherSplashes.filter(s => s.life > 0);
 
   } else if (ACCUMULATING_EFFECTS.includes(weatherEffect)) {
-    // 每一影格都先融化一點點,長期下來堆積高度會停在「落下速度」和「融化速度」的平衡點,不會一直長高
+    // 融化速度再放慢很多,堆積量也提高,確保持續飄落時真的能堆出看得見的小山,
+    // 而不是粒子一落地馬上又被融化抵銷掉
     for (let i = 0; i < weatherPileHeights.length; i++) {
-      weatherPileHeights[i] = Math.max(0, weatherPileHeights[i] - 0.025);
+      weatherPileHeights[i] = Math.max(0, weatherPileHeights[i] - 0.0015);
     }
 
     weatherParticles.forEach(p => {
@@ -3804,7 +3819,7 @@ function stepWeather() {
       const pileTop = groundY - weatherPileHeights[bucket];
 
       if (p.y >= pileTop) {
-        weatherPileHeights[bucket] = Math.min(26, weatherPileHeights[bucket] + 1.4);
+        weatherPileHeights[bucket] = Math.min(40, weatherPileHeights[bucket] + 2);
         p.x = Math.random() * canvas.width;
         p.y = -10;
         if (p.rotation !== undefined) p.rotation = Math.random() * Math.PI * 2;
