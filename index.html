@@ -3321,27 +3321,37 @@ async function gistRequest(url, options = {}, token) {
 
 async function connectGist() {
   const token = document.getElementById("gistTokenInput").value.trim();
+  const manualGistId = document.getElementById("gistIdInput").value.trim();
   if (!token) return showToast("請先貼上 Personal Access Token");
 
-  const existing = loadGistConfig();
   document.getElementById("gistConnectBtn").disabled = true;
 
   try {
-    if (existing && existing.gistId) {
-      // 這支手機/帳號之前設定過,這次只是要驗證新 token 是否還能存取同一個 Gist
-      await gistRequest(`${GIST_API}/${existing.gistId}`, {}, token);
-      saveGistConfig({ ...existing, token });
-      showToast("已重新連接雲端備份");
+    if (manualGistId) {
+      // 手動連接既有 Gist:這裡只做 GET 驗證能不能讀到這個 Gist,
+      // 完全不會建立新 Gist、也不會寫入/覆蓋任何雲端內容,單純把 token+gistId 記起來,
+      // 實際要把資料抓回本機,需要使用者自己按下方的「從雲端還原」才會真正讀取套用。
+      await gistRequest(`${GIST_API}/${manualGistId}`, {}, token);
+      saveGistConfig({ token, gistId: manualGistId, lastSyncAt: null });
+      showToast("已連接既有 Gist,請按「從雲端還原」把資料讀回來");
     } else {
-      // 第一次設定:建立一個新的私密 Gist,內容放目前這支手機上的資料
-      const body = {
-        description: "快速記帳 資料備份(請勿手動修改此檔案)",
-        public: false,
-        files: { [GIST_FILENAME]: { content: JSON.stringify(buildExportData(), null, 2) } }
-      };
-      const created = await gistRequest(GIST_API, { method: "POST", body: JSON.stringify(body) }, token);
-      saveGistConfig({ token, gistId: created.id, lastSyncAt: Date.now() });
-      showToast("已建立雲端備份");
+      const existing = loadGistConfig();
+      if (existing && existing.gistId) {
+        // 這支手機/帳號之前設定過,這次只是要驗證新 token 是否還能存取同一個 Gist
+        await gistRequest(`${GIST_API}/${existing.gistId}`, {}, token);
+        saveGistConfig({ ...existing, token });
+        showToast("已重新連接雲端備份");
+      } else {
+        // 第一次設定、且沒有填既有 Gist ID:建立一個新的私密 Gist,內容放目前這支手機上的資料
+        const body = {
+          description: "快速記帳 資料備份(請勿手動修改此檔案)",
+          public: false,
+          files: { [GIST_FILENAME]: { content: JSON.stringify(buildExportData(), null, 2) } }
+        };
+        const created = await gistRequest(GIST_API, { method: "POST", body: JSON.stringify(body) }, token);
+        saveGistConfig({ token, gistId: created.id, lastSyncAt: Date.now() });
+        showToast("已建立雲端備份");
+      }
     }
   } catch (err) {
     showToast(err.message);
@@ -3399,11 +3409,14 @@ function renderGistSyncUI() {
   if (!config) {
     container.innerHTML = `
       <p class="gist-hint">
-        貼上你的 GitHub Personal Access Token(需要 Gist 讀寫權限),
-        第一次連接會自動建立一個私密 Gist 存放這個帳號的記帳資料。
+        貼上你的 GitHub Personal Access Token(需要 Gist 讀寫權限)。
+        <br>留空下方「Gist ID」= 建立一個全新的雲端備份;
+        填入你既有的 Gist ID = 直接連回去讀取舊資料,<strong>絕對不會覆蓋或修改雲端上的內容</strong>,
+        連接後請按「從雲端還原」把資料抓回這支手機。
       </p>
       <input type="password" class="gist-token-input" id="gistTokenInput" placeholder="ghp_xxxxxxxxxxxx">
-      <div class="gist-btn-row">
+      <input type="text" class="gist-token-input" id="gistIdInput" placeholder="既有 Gist ID(選填,留空 = 建立新的)" style="margin-top:8px">
+      <div class="gist-btn-row" style="margin-top:8px">
         <button class="gist-btn" id="gistConnectBtn">連接雲端備份</button>
       </div>
     `;
