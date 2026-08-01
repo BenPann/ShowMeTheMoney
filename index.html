@@ -65,6 +65,12 @@
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
 
 <style>
+/* 陀螺儀視差效果用的位移變數,預設0px(沒開啟效果時完全不影響Ken Burns動畫) */
+:root {
+  --parallax-x: 0px;
+  --parallax-y: 0px;
+}
+
 /* ===== 色彩變數:依附圖深色系設定 ===== */
 :root[data-theme="dark"] {
   --bg-app: #1c1c1e;
@@ -116,16 +122,42 @@ body {
    不會受頁面內容捲動高度影響,不會有拉伸或縮放跑掉的問題。
    這裡刻意不用負值 z-index——body 沒有明確建立「堆疊環境」時,
    負值 z-index 的元素會被整個推到 body 自己的底色後面,完全看不見。
-   改成:這層維持 z-index:0(不特別疊高),讓下面 #appRoot 疊在它上面一層即可。 */
+   改成:這層維持 z-index:0(不特別疊高),讓下面 #appRoot 疊在它上面一層即可。
+
+   inset 改用 -8%(比螢幕範圍大一圈),是為了給下面的 Ken Burns 縮放/平移動畫
+   留緩衝空間,不然縮放平移到極限時,螢幕邊緣會露出背景圖片以外的空白。
+
+   transform 用 CSS 變數 --parallax-x / --parallax-y 疊加陀螺儀視差位移,
+   這兩個變數平常是 0px(JS 沒有更新的話完全不影響動畫),啟用陀螺儀效果後
+   JS 會即時更新這兩個變數,跟 Ken Burns 動畫的位移「相加」在一起,
+   讓兩個效果自然疊加而不是互相覆蓋掉對方。 */
 #bgImageLayer {
   position: fixed;
-  inset: 0;
+  inset: -8%;
   z-index: 0;
   background-image: var(--custom-bg-image, none);
   background-size: cover;
   background-position: center;
   background-repeat: no-repeat;
   pointer-events: none;
+  animation: kenBurnsPan 80s ease-in-out infinite;
+  will-change: transform;
+}
+
+@keyframes kenBurnsPan {
+  0% {
+    transform: scale(1) translate3d(var(--parallax-x, 0px), var(--parallax-y, 0px), 0);
+  }
+  50% {
+    transform: scale(1.12) translate3d(
+      calc(var(--parallax-x, 0px) - 16px),
+      calc(var(--parallax-y, 0px) - 10px),
+      0
+    );
+  }
+  100% {
+    transform: scale(1) translate3d(var(--parallax-x, 0px), var(--parallax-y, 0px), 0);
+  }
 }
 
 /* 自動對比度遮罩:疊在背景圖片上方、實際內容下方(appRoot 是 z-index:1,這層維持 0,
@@ -1423,7 +1455,16 @@ nav.bottom-tabs {
           <button class="gist-btn danger" id="removeBgBtn" style="display:none">移除背景</button>
         </div>
       </div>
-      <p class="gist-hint" style="margin-top:8px">套用後會以 cover 模式自動填滿畫面,並依照片亮度自動加上適當的對比度遮罩</p>
+      <p class="gist-hint" style="margin-top:8px">套用後會以 cover 模式自動填滿畫面,並依照片亮度自動加上適當的對比度遮罩。背景本身還會有極緩慢的縮放平移動態,讓畫面感覺是活的。</p>
+    </div>
+
+    <div class="settings-row">
+      <p class="settings-row-label">背景視差效果(陀螺儀)</p>
+      <div class="segmented" id="parallaxSegmented">
+        <button class="segmented-btn active" data-value="off">關閉</button>
+        <button class="segmented-btn" data-value="on">開啟</button>
+      </div>
+      <p class="gist-hint" style="margin-top:8px" id="parallaxHint">開啟後,傾斜手機時背景會微微跟著位移,做出立體視差感。iOS 需要先同意動作感應器的權限。</p>
     </div>
 
     <div class="settings-row">
@@ -3659,7 +3700,12 @@ let weatherEffect = "none";
 let weatherAnimId = null;
 let weatherParticles = [];
 let weatherSplashes = [];      // 只有下雨會用到
-let weatherPileHeights = [];   // 下雪/楓葉/櫻花的堆積高度(每個橫向區塊各自一個值)
+// 下雪/楓葉/櫻花/金幣的堆積記錄:每個橫向區塊各自是一個陣列,裡面存著
+// { amount, time } 這種「這一筆是什麼時候落地堆積的」記錄,而不是單純一個數字。
+// 這樣才能做到「每一筆堆積各自在落地 3 分鐘後消失」,而不是整體維持在一個
+// 「持續下雪就會一直吊在高處」的平衡值。
+let weatherPileDeposits = [];
+const PILE_LIFETIME_MS = 3 * 60 * 1000; // 3 分鐘
 let weatherMeteors = [];       // 只有流星雨會用到
 
 let weatherAuroraPhase = 0; // 只有極光會用到,累加後做出波浪流動感
@@ -3787,7 +3833,7 @@ function initWeatherParticles() {
   weatherSplashes = [];
   weatherMeteors = [];
   weatherAuroraPhase = 0;
-  weatherPileHeights = new Array(WEATHER_BUCKETS).fill(0);
+  weatherPileDeposits = Array.from({ length: WEATHER_BUCKETS }, () => []);
 
   const countMap = {
     rain: 45,
@@ -3871,11 +3917,16 @@ function stepWeather() {
     weatherSplashes = weatherSplashes.filter(s => s.life > 0);
 
   } else if (ACCUMULATING_EFFECTS.includes(weatherEffect)) {
-    // 融化速度再放慢很多,堆積量也提高,確保持續飄落時真的能堆出看得見的小山,
-    // 而不是粒子一落地馬上又被融化抵銷掉
-    for (let i = 0; i < weatherPileHeights.length; i++) {
-      weatherPileHeights[i] = Math.max(0, weatherPileHeights[i] - 0.0015);
-    }
+    // 先清掉每個區塊裡「落地超過3分鐘」的舊記錄,並算出目前每個區塊實際的堆積高度。
+    // 用真實時間(Date.now())而不是影格數計算,不管手機效能好壞、有沒有切到背景,
+    // 3分鐘就是3分鐘,不會因為掉幀而變得忽快忽慢。
+    const now = Date.now();
+    const currentPileHeights = weatherPileDeposits.map(deposits => {
+      while (deposits.length && now - deposits[0].time > PILE_LIFETIME_MS) {
+        deposits.shift();
+      }
+      return Math.min(40, deposits.reduce((sum, d) => sum + d.amount, 0));
+    });
 
     weatherParticles.forEach(p => {
       p.driftPhase += 0.02;
@@ -3885,10 +3936,12 @@ function stepWeather() {
       if (p.x > canvas.width) p.x = 0;
 
       const bucket = weatherBucketIndex(p.x, canvas.width);
-      const pileTop = groundY - weatherPileHeights[bucket];
+      const pileTop = groundY - currentPileHeights[bucket];
 
       if (p.y >= pileTop) {
-        weatherPileHeights[bucket] = Math.min(40, weatherPileHeights[bucket] + 2);
+        // 記錄這一筆是「現在」落地的,3分鐘後這筆記錄會被上面的清理邏輯自動移除
+        weatherPileDeposits[bucket].push({ amount: 2, time: now });
+        currentPileHeights[bucket] = Math.min(40, currentPileHeights[bucket] + 2);
         p.x = Math.random() * canvas.width;
         p.y = -10;
         if (p.rotation !== undefined) p.rotation = Math.random() * Math.PI * 2;
@@ -3931,9 +3984,9 @@ function stepWeather() {
     // 1. 先對高度陣列做輕微的移動平均,讓相鄰區塊之間的落差變柔和,不會忽高忽低
     // 2. 用二次貝茲曲線把每個區塊「中點」平滑連起來,取代原本逐格拼接矩形的畫法,
     //    避免看起來像一格一格堆疊的積木,改成自然圓潤的雪堆/落葉堆輪廓
-    const smoothedPile = weatherPileHeights.map((h, i) => {
-      const prev = weatherPileHeights[i - 1] !== undefined ? weatherPileHeights[i - 1] : h;
-      const next = weatherPileHeights[i + 1] !== undefined ? weatherPileHeights[i + 1] : h;
+    const smoothedPile = currentPileHeights.map((h, i) => {
+      const prev = currentPileHeights[i - 1] !== undefined ? currentPileHeights[i - 1] : h;
+      const next = currentPileHeights[i + 1] !== undefined ? currentPileHeights[i + 1] : h;
       return (prev + h * 2 + next) / 4;
     });
 
@@ -4110,6 +4163,91 @@ document.getElementById("weatherEffectSegmented").addEventListener("click", (e) 
 
 // 開機時套用上次選擇的特效(裝置層級設定,不用登入就能生效)
 startWeatherEffect(localStorage.getItem(WEATHER_EFFECT_KEY) || "none");
+
+/*
+  ===== 背景視差效果(陀螺儀)=====
+  傾斜手機時,讀取裝置方向感應器的角度,微幅位移背景圖層,
+  跟 CSS 的 Ken Burns 慢速縮放平移動畫疊加在同一組 --parallax-x/y 變數上,
+  兩個效果自然合成,不會互相覆蓋掉對方。
+
+  iOS 13+ 基於隱私考量,要求「使用者主動點擊」的當下才能請求動作感應器權限,
+  不能在頁面載入時自動偷偷請求,所以這裡設計成需要手動按「開啟」才會生效,
+  每次重新整理頁面都需要重新按一次(這是 iOS 的限制,不是我們刻意設計成這樣麻煩)。
+*/
+let parallaxListenerAttached = false;
+
+function handleDeviceOrientation(e) {
+  const gamma = typeof e.gamma === "number" ? e.gamma : 0; // 左右傾斜(-90~90)
+  const beta = typeof e.beta === "number" ? e.beta : 0;    // 前後傾斜(-180~180)
+
+  // 手機平常握持角度大約傾斜 45 度左右使用,這裡扣掉一個基準角度,
+  // 讓「正常拿著看」的角度對應到位移 0,而不是要整支手機躺平才是 0
+  const clampedGamma = Math.max(-25, Math.min(25, gamma));
+  const clampedBeta = Math.max(-25, Math.min(25, beta - 45));
+
+  const px = (clampedGamma / 25) * 14; // 左右最多位移 14px
+  const py = (clampedBeta / 25) * 10;  // 前後最多位移 10px
+
+  document.documentElement.style.setProperty("--parallax-x", `${px.toFixed(1)}px`);
+  document.documentElement.style.setProperty("--parallax-y", `${py.toFixed(1)}px`);
+}
+
+function enableParallax() {
+  const needsPermission =
+    typeof DeviceOrientationEvent !== "undefined" &&
+    typeof DeviceOrientationEvent.requestPermission === "function";
+
+  if (needsPermission) {
+    // iOS 13+:一定要在使用者點擊的當下呼叫,才會跳出權限詢問
+    DeviceOrientationEvent.requestPermission()
+      .then((state) => {
+        if (state === "granted") {
+          window.addEventListener("deviceorientation", handleDeviceOrientation);
+          parallaxListenerAttached = true;
+          showToast("已啟用視差效果");
+        } else {
+          showToast("沒有取得動作感應器權限,無法啟用");
+          setParallaxToggleUI("off");
+        }
+      })
+      .catch(() => {
+        showToast("這個裝置不支援視差效果");
+        setParallaxToggleUI("off");
+      });
+  } else {
+    // Android 等其他平台不需要額外請求權限,直接監聽
+    window.addEventListener("deviceorientation", handleDeviceOrientation);
+    parallaxListenerAttached = true;
+    showToast("已啟用視差效果");
+  }
+}
+
+function disableParallax() {
+  if (parallaxListenerAttached) {
+    window.removeEventListener("deviceorientation", handleDeviceOrientation);
+    parallaxListenerAttached = false;
+  }
+  document.documentElement.style.setProperty("--parallax-x", "0px");
+  document.documentElement.style.setProperty("--parallax-y", "0px");
+  showToast("已停用視差效果");
+}
+
+function setParallaxToggleUI(value) {
+  document.querySelectorAll("#parallaxSegmented .segmented-btn").forEach((btn) =>
+    btn.classList.toggle("active", btn.dataset.value === value)
+  );
+}
+
+document.getElementById("parallaxSegmented").addEventListener("click", (e) => {
+  const btn = e.target.closest(".segmented-btn");
+  if (!btn) return;
+  setParallaxToggleUI(btn.dataset.value);
+  if (btn.dataset.value === "on") {
+    enableParallax();
+  } else {
+    disableParallax();
+  }
+});
 </script>
 
 </body>
