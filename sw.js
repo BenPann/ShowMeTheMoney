@@ -1,23 +1,21 @@
 /*
-  ===== Service Worker:確保加到主畫面的 App 每次開啟都拿到最新版本 =====
+  ===== Service Worker:手動更新策略 =====
 
-  策略是「network-first」:
-  1. 每次開啟 App(導覽請求),先嘗試連網抓最新的 index.html
-  2. 抓到就直接用,並且順便把這份最新版存進快取
-  3. 只有真的離線抓不到網路時,才退回使用上一次成功快取的版本
+  策略改成「cache-first」:
+  1. 平常開啟 App,一律優先使用快取裡的版本,不會主動連網比對、不會有額外的網路延遲
+  2. 只有快取裡完全沒有東西時(例如第一次造訪),才會連網抓一次並存進快取
+  3. 之後要更新版本,必須透過 App 內「設定 → App 版本 → 立即更新」按鈕主動觸發,
+     由 App 自己的程式碼把新版寫回這裡用的同一個快取(CACHE_NAME 要跟 App 裡寫的一致)
 
-  這樣可以避免瀏覽器自己的 HTTP 快取太激進,導致上傳新版到 GitHub Pages 後,
-  手機上的 App 卻遲遲抓不到最新內容的問題。
+  這樣平常開啟速度不會被「每次都要連網」拖慢,但也保留了「需要時可以手動更新」的彈性。
 */
 
 const CACHE_NAME = "ledger-cache-v1";
 
-// 安裝時立刻生效,不用等使用者關掉所有分頁才切換到新版 Service Worker
 self.addEventListener("install", () => {
   self.skipWaiting();
 });
 
-// 啟用時立刻接管畫面,同樣是為了讓更新盡快生效
 self.addEventListener("activate", (event) => {
   event.waitUntil(self.clients.claim());
 });
@@ -28,16 +26,17 @@ self.addEventListener("fetch", (event) => {
 
   event.respondWith(
     (async () => {
+      const cached = await caches.match(event.request);
+      if (cached) return cached;
+
+      // 快取裡沒有東西(通常只有第一次造訪會發生),才連網抓一次並存進快取
       try {
-        // cache:"no-store" 確保這次 fetch 不會被瀏覽器自己的 HTTP 快取擋掉
-        const networkResponse = await fetch(event.request, { cache: "no-store" });
+        const networkResponse = await fetch(event.request);
         const cache = await caches.open(CACHE_NAME);
         cache.put(event.request, networkResponse.clone());
         return networkResponse;
       } catch (err) {
-        // 連網失敗(真的離線)才退回使用快取
-        const cached = await caches.match(event.request);
-        return cached || new Response("離線中,且沒有快取版本可用", { status: 503 });
+        return new Response("離線中,且沒有快取版本可用", { status: 503 });
       }
     })()
   );

@@ -140,6 +140,11 @@ body {
   background-position: center;
   background-repeat: no-repeat;
   pointer-events: none;
+}
+
+/* Ken Burns 動畫只在「真的有設定背景圖片」時才啟用(JS 會在套用/移除背景圖片時
+   切換這個 class),沒有背景圖片時完全不佔用 GPU 合成資源,避免平白消耗效能 */
+#bgImageLayer.has-bg-image {
   animation: kenBurnsPan 80s ease-in-out infinite;
   will-change: transform;
 }
@@ -1473,6 +1478,14 @@ nav.bottom-tabs {
     </div>
 
     <div class="settings-row">
+      <p class="settings-row-label">App 版本</p>
+      <p class="gist-status" id="versionStatusText">檢查中...</p>
+      <div class="gist-btn-row" id="versionUpdateRow" style="display:none">
+        <button class="gist-btn" id="versionUpdateBtn">立即更新</button>
+      </div>
+    </div>
+
+    <div class="settings-row">
       <p class="settings-row-label">目前登入帳號</p>
       <p style="margin:0 0 10px" id="currentAccountLabel"></p>
       <div class="gist-btn-row">
@@ -1629,7 +1642,7 @@ function switchPage(target) {
   }
   if (target === "stats") renderStats();
   if (target === "categories") renderCategoryManageList();
-  if (target === "settings") { renderGistSyncUI(); renderBgSettingsUI(); renderBudgetSettingsUI(); }
+  if (target === "settings") { renderGistSyncUI(); renderBgSettingsUI(); renderBudgetSettingsUI(); renderVersionCheckUI(); }
 }
 
 document.getElementById("bottomTabs").addEventListener("click", (e) => {
@@ -3547,6 +3560,9 @@ function applyBackgroundImage(dataUrl) {
     "--custom-bg-image",
     dataUrl ? `url("${dataUrl}")` : "none"
   );
+  // 沒有背景圖片時,連 Ken Burns 動畫都一併關掉,不白白佔用 GPU 合成資源
+  const layer = document.getElementById("bgImageLayer");
+  if (layer) layer.classList.toggle("has-bg-image", !!dataUrl);
 }
 
 /*
@@ -4248,6 +4264,92 @@ document.getElementById("parallaxSegmented").addEventListener("click", (e) => {
     disableParallax();
   }
 });
+
+/*
+  ===== App 版本檢查 / 手動更新 =====
+  「版本號」直接用 GitHub 上 index.html 這個檔案最新一次 commit 的 SHA 值,
+  不用另外維護一個版本號檔案、也不用每次手動累加——只要你 commit 了新版 index.html,
+  這個 SHA 自然就會改變,完全自動。
+
+  本地版本存在 localStorage,只有你自己按下「立即更新」時才會真正去抓最新的
+  index.html 並更新本地快取,平常開啟 App 不會自動連網比對,符合你要的「手動」。
+*/
+const LOCAL_VERSION_KEY = "ledger_local_version";
+
+// 從目前網址自動判斷 GitHub Pages 的 owner/repo,不用手動填設定
+function detectGitHubRepoInfo() {
+  const host = location.hostname;
+  if (!host.endsWith(".github.io")) return null; // 自訂網域等情況,無法自動判斷
+  const owner = host.replace(".github.io", "");
+  const pathParts = location.pathname.split("/").filter(Boolean);
+  const repo = pathParts.length > 0 ? pathParts[0] : `${owner}.github.io`;
+  return { owner, repo };
+}
+
+async function fetchLatestCommitSha() {
+  const info = detectGitHubRepoInfo();
+  if (!info) throw new Error("無法自動判斷 GitHub repo(可能使用自訂網域)");
+  const url = `https://api.github.com/repos/${info.owner}/${info.repo}/commits?path=index.html&per_page=1`;
+  const res = await fetch(url, { headers: { Accept: "application/vnd.github+json" } });
+  if (!res.ok) throw new Error(`GitHub API 錯誤(狀態碼 ${res.status})`);
+  const data = await res.json();
+  if (!data.length) throw new Error("找不到 index.html 的 commit 紀錄");
+  return data[0].sha;
+}
+
+async function renderVersionCheckUI() {
+  const statusEl = document.getElementById("versionStatusText");
+  const updateRow = document.getElementById("versionUpdateRow");
+  if (!statusEl || !updateRow) return;
+
+  updateRow.style.display = "none";
+  statusEl.textContent = "檢查中...";
+
+  const localVersion = localStorage.getItem(LOCAL_VERSION_KEY);
+
+  try {
+    const latestSha = await fetchLatestCommitSha();
+
+    if (!localVersion) {
+      // 第一次使用,沒有基準版本可比對,直接把目前雲端版本當作本地版本
+      localStorage.setItem(LOCAL_VERSION_KEY, latestSha);
+      statusEl.textContent = `目前版本:${latestSha.slice(0, 7)}(已是最新)`;
+      return;
+    }
+
+    if (latestSha === localVersion) {
+      statusEl.textContent = `目前版本:${localVersion.slice(0, 7)}(已是最新)`;
+    } else {
+      statusEl.textContent = `本地版本:${localVersion.slice(0, 7)} → 雲端最新版本:${latestSha.slice(0, 7)}`;
+      updateRow.style.display = "";
+      document.getElementById("versionUpdateBtn").onclick = () => performManualUpdate(latestSha);
+    }
+  } catch (err) {
+    statusEl.textContent = `無法檢查版本:${err.message}`;
+  }
+}
+
+async function performManualUpdate(latestSha) {
+  showToast("正在更新...");
+  try {
+    // 強制略過瀏覽器快取,重新抓最新的 index.html
+    const res = await fetch(location.href, { cache: "no-store" });
+    if (!res.ok) throw new Error("下載新版失敗");
+
+    // Service Worker 是「手動」策略,平常都吃快取,這裡主動把最新版寫回同一份快取,
+    // 下次(不管是現在重新整理、還是之後隨便哪次開啟)才會生效
+    if ("caches" in window) {
+      const cache = await caches.open("ledger-cache-v1");
+      await cache.put(new Request(location.href), res.clone());
+    }
+
+    localStorage.setItem(LOCAL_VERSION_KEY, latestSha);
+    showToast("已更新,即將重新整理");
+    setTimeout(() => location.reload(), 800);
+  } catch (err) {
+    showToast("更新失敗:" + err.message);
+  }
+}
 </script>
 
 </body>
