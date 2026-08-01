@@ -1147,14 +1147,49 @@ nav.bottom-tabs {
   margin: 8px 0 0;
 }
 
-/* ===== 背景圖片設定 ===== */
-.bg-preview-img {
+/* ===== 背景圖片設定:左邊直式預覽、右邊按鈕直排 ===== */
+.bg-setting-layout {
+  display: flex;
+  gap: 12px;
+  align-items: stretch;
+}
+.bg-preview-box {
+  flex: none;
+  width: 88px;
+  aspect-ratio: 9 / 16; /* 手機拍的照片多半是直式,預覽框跟著用直式比例,不再是橫式框框 */
+  border-radius: 10px;
+  background: var(--bg-app);
+  border: 0.5px solid var(--border-subtle);
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.bg-preview-box img {
   width: 100%;
-  max-height: 130px;
-  object-fit: cover;
-  border-radius: 8px;
-  margin-bottom: 8px;
+  height: 100%;
+  object-fit: contain; /* 用 contain 而不是 cover,確保完整看到整張縮圖,不會只看到裁切後的局部 */
   display: block;
+}
+.bg-preview-empty-text {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  text-align: center;
+  padding: 0 6px;
+  line-height: 1.4;
+}
+.bg-setting-actions {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 8px;
+}
+.bg-setting-actions .gist-btn {
+  flex: none;
+  width: 100%;
+  min-width: 0;
 }
 
 /* 視覺上隱藏但仍保留在渲染樹中,file input 用這個而不是 display:none,
@@ -1380,12 +1415,15 @@ nav.bottom-tabs {
 
     <div class="settings-row">
       <p class="settings-row-label">背景圖片</p>
-      <div id="bgPreviewWrap"></div>
-      <input type="file" id="bgImageInput" accept="image/*" class="visually-hidden">
-      <div class="gist-btn-row">
-        <button class="gist-btn secondary" id="chooseBgBtn">選擇圖片</button>
-        <button class="gist-btn danger" id="removeBgBtn" style="display:none">移除背景</button>
+      <div class="bg-setting-layout">
+        <div class="bg-preview-box" id="bgPreviewWrap"></div>
+        <div class="bg-setting-actions">
+          <input type="file" id="bgImageInput" accept="image/*" class="visually-hidden">
+          <button class="gist-btn secondary" id="chooseBgBtn">選擇圖片</button>
+          <button class="gist-btn danger" id="removeBgBtn" style="display:none">移除背景</button>
+        </div>
       </div>
+      <p class="gist-hint" style="margin-top:8px">套用後會以 cover 模式自動填滿畫面,並依照片亮度自動加上適當的對比度遮罩</p>
     </div>
 
     <div class="settings-row">
@@ -3321,7 +3359,12 @@ async function gistRequest(url, options = {}, token) {
 
 async function connectGist() {
   const token = document.getElementById("gistTokenInput").value.trim();
-  const manualGistId = document.getElementById("gistIdInput").value.trim();
+  // 貼的可能是純 ID,也可能是整個 Gist 網址(甚至結尾多了斜線),
+  // 這裡一律取路徑最後一段當作實際的 Gist ID,寬容處理常見的複製失誤
+  const rawGistIdInput = document.getElementById("gistIdInput").value.trim();
+  const manualGistId = rawGistIdInput
+    ? rawGistIdInput.replace(/\/+$/, "").split("/").pop()
+    : "";
   if (!token) return showToast("請先貼上 Personal Access Token");
 
   document.getElementById("gistConnectBtn").disabled = true;
@@ -3411,16 +3454,24 @@ function renderGistSyncUI() {
       <p class="gist-hint">
         貼上你的 GitHub Personal Access Token(需要 Gist 讀寫權限)。
         <br>留空下方「Gist ID」= 建立一個全新的雲端備份;
-        填入你既有的 Gist ID = 直接連回去讀取舊資料,<strong>絕對不會覆蓋或修改雲端上的內容</strong>,
-        連接後請按「從雲端還原」把資料抓回這支手機。
+        填入你既有的 Gist ID(可以貼純 ID,也可以直接貼整個 Gist 網址)= 直接連回去讀取舊資料,
+        <strong>絕對不會覆蓋或修改雲端上的內容</strong>,連接後請按「從雲端還原」把資料抓回這支手機。
       </p>
       <input type="password" class="gist-token-input" id="gistTokenInput" placeholder="ghp_xxxxxxxxxxxx">
-      <input type="text" class="gist-token-input" id="gistIdInput" placeholder="既有 Gist ID(選填,留空 = 建立新的)" style="margin-top:8px">
+      <input type="text" class="gist-token-input" id="gistIdInput" placeholder="既有 Gist ID 或整個 Gist 網址(選填)" style="margin-top:8px">
+      <p class="gist-hint" id="gistIdPreview" style="margin-top:4px"></p>
       <div class="gist-btn-row" style="margin-top:8px">
         <button class="gist-btn" id="gistConnectBtn">連接雲端備份</button>
       </div>
     `;
     document.getElementById("gistConnectBtn").addEventListener("click", connectGist);
+    document.getElementById("gistIdInput").addEventListener("input", (e) => {
+      const preview = document.getElementById("gistIdPreview");
+      const raw = e.target.value.trim();
+      if (!raw) { preview.textContent = ""; return; }
+      const parsed = raw.replace(/\/+$/, "").split("/").pop();
+      preview.textContent = `將會查詢的 Gist ID:${parsed}`;
+    });
     return;
   }
 
@@ -3507,10 +3558,10 @@ function renderBgSettingsUI() {
   if (!preview || !removeBtn) return; // appRoot 還沒渲染(尚未登入)時直接跳過
 
   if (stored) {
-    preview.innerHTML = `<img src="${stored}" class="bg-preview-img" alt="目前背景圖片">`;
+    preview.innerHTML = `<img src="${stored}" alt="目前背景圖片">`;
     removeBtn.style.display = "";
   } else {
-    preview.innerHTML = `<p class="gist-hint">尚未設定背景圖片,套用後會以 cover 模式自動填滿畫面,並自動依照片亮度加上適當的對比度遮罩</p>`;
+    preview.innerHTML = `<p class="bg-preview-empty-text">尚未選擇<br>背景圖片</p>`;
     removeBtn.style.display = "none";
   }
 }
